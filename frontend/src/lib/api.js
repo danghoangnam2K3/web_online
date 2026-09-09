@@ -1,6 +1,6 @@
 import { initialCoursesData, initialStudentsData } from './mockData';
 
-const BASE_URL = 'http://localhost:5000/api';
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://web-online-wbn5.onrender.com/api';
 
 // Cache trong bộ nhớ frontend nếu backend không phản hồi
 let localCourses = [...initialCoursesData];
