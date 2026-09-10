@@ -14,14 +14,7 @@ exports.getAllCourses = async (req, res) => {
 
     let query = supabase
       .from('courses')
-      .select(`
-        *,
-        chapters (
-          *,
-          lessons ( * )
-        ),
-        enrollments ( student_id )
-      `)
+      .select('*')
       .order('created_at', { ascending: false });
 
     if (search) {
@@ -31,24 +24,45 @@ exports.getAllCourses = async (req, res) => {
       query = query.eq('license_tier', tier);
     }
 
-    const { data, error } = await query;
-    if (error) throw new Error(error.message);
+    const { data: coursesData, error: coursesError } = await query;
+    if (coursesError) throw new Error(coursesError.message);
 
-    // Chuẩn hóa: chapters sắp xếp theo order_index, enrolled_student_ids từ enrollments
-    const result = (data || []).map(course => ({
-      ...course,
-      chapters: (course.chapters || [])
-        .sort((a, b) => a.order_index - b.order_index)
-        .map(ch => ({
-          ...ch,
-          lessons: (ch.lessons || []).sort((a, b) => (a.order_index || 0) - (b.order_index || 0))
-        })),
-      enrolled_student_ids: (course.enrollments || []).map(e => e.student_id),
-      enrollments: undefined
+    // Thử lấy thêm chapters, lessons, enrollments một cách an toàn
+    const result = await Promise.all((coursesData || []).map(async (course) => {
+      let chapters = [];
+      let enrolled_student_ids = [];
+
+      try {
+        const { data: chData } = await supabase
+          .from('chapters')
+          .select('*, lessons(*)')
+          .eq('course_id', course.id)
+          .order('order_index', { ascending: true });
+        if (chData) chapters = chData;
+      } catch (e) {
+        console.warn('Lỗi lấy chapters cho khóa học:', course.id, e.message);
+      }
+
+      try {
+        const { data: enData } = await supabase
+          .from('enrollments')
+          .select('student_id')
+          .eq('course_id', course.id);
+        if (enData) enrolled_student_ids = enData.map(e => e.student_id);
+      } catch (e) {
+        console.warn('Lỗi lấy enrollments cho khóa học:', course.id, e.message);
+      }
+
+      return {
+        ...course,
+        chapters,
+        enrolled_student_ids
+      };
     }));
 
     return res.json({ success: true, data: result });
   } catch (err) {
+    console.error('Lỗi getAllCourses:', err.message);
     return res.status(500).json({ success: false, message: err.message });
   }
 };
