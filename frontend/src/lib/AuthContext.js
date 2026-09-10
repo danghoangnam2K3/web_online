@@ -56,17 +56,29 @@ export function AuthProvider({ children }) {
   };
 
   // Register
-  const register = async ({ email, password, full_name, username }) => {
+  const register = async (emailOrObj, password, full_name, username) => {
+    let payload;
+    if (typeof emailOrObj === 'object' && emailOrObj !== null) {
+      payload = emailOrObj;
+    } else {
+      payload = {
+        email: emailOrObj,
+        password: password,
+        full_name: full_name,
+        username: username || (typeof emailOrObj === 'string' ? emailOrObj.split('@')[0] : '')
+      };
+    }
+
     const res = await fetch(`${BASE_URL}/auth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password, full_name, username }),
+      body: JSON.stringify(payload),
     });
     const json = await res.json();
     if (!res.ok || !json.success) {
       throw new Error(json.message || 'Đăng ký thất bại');
     }
-    return json.data;
+    return json;
   };
 
   // Change Password
