@@ -197,6 +197,20 @@ async function register(req, res) {
     status: 'active'
   };
 
+  // Kiểm tra email hoặc username đã tồn tại trong Supabase chưa
+  const { data: existingUser } = await supabase
+    .from('students')
+    .select('id, email, username')
+    .or(`email.eq.${email},username.eq.${username || email.split('@')[0]}`)
+    .limit(1);
+
+  if (existingUser && existingUser.length > 0) {
+    return res.status(400).json({
+      success: false,
+      message: 'Email hoặc tên đăng nhập này đã tồn tại trong Supabase!'
+    });
+  }
+
   const { data: insertedData, error: insertErr } = await supabase
     .from('students')
     .insert([newStudent])
@@ -204,12 +218,16 @@ async function register(req, res) {
 
   if (insertErr) {
     console.error('Lỗi chèn dữ liệu học viên mới:', insertErr.message);
+    return res.status(400).json({
+      success: false,
+      message: 'Lỗi tạo tài khoản Supabase: ' + insertErr.message
+    });
   }
 
   return res.json({
     success: true,
     message: 'Đăng ký tài khoản Supabase thành công!',
-    data: { user: insertedData ? insertedData[0] : { email, full_name } }
+    data: { user: insertedData[0] }
   });
 }
 
