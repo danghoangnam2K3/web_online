@@ -9,7 +9,7 @@ export default function RegisterPage() {
   const router = useRouter();
   const { register } = useAuth();
 
-  const [form, setForm] = useState({ full_name: '', email: '', password: '', confirm: '' });
+  const [form, setForm] = useState({ full_name: '', username: '', email: '', password: '', confirm: '' });
   const [showPw, setShowPw] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -31,7 +31,12 @@ export default function RegisterPage() {
     }
     setLoading(true);
     try {
-      const res = await register(form.email, form.password, form.full_name);
+      const res = await register({
+        email: form.email,
+        password: form.password,
+        full_name: form.full_name,
+        username: form.username || form.email.split('@')[0]
+      });
       setSuccess(res.message + ' Đang chuyển sang trang đăng nhập...');
       setTimeout(() => router.push('/login'), 2000);
     } catch (err) {
@@ -43,6 +48,7 @@ export default function RegisterPage() {
 
   const fields = [
     { id: 'full_name', label: 'Họ và tên', type: 'text', placeholder: 'Nguyễn Văn A', icon: User, field: 'full_name', autoComplete: 'name' },
+    { id: 'username', label: 'Tên đăng nhập (Username)', type: 'text', placeholder: 'nguyenvana', icon: User, field: 'username', autoComplete: 'username' },
     { id: 'email', label: 'Email', type: 'email', placeholder: 'admin@driveedu.vn', icon: Mail, field: 'email', autoComplete: 'email' },
   ];
 
