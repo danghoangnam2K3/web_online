@@ -1,14 +1,15 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { fetchStudents, createStudentApi } from '../lib/api';
-import { Users, UserPlus, Search, Shield, Eye, CreditCard, Calendar, Filter, CheckCircle2, Lock } from 'lucide-react';
+import { fetchStudents, createStudentApi, deleteStudentApi } from '../lib/api';
+import { Users, UserPlus, Search, Shield, Eye, CreditCard, Calendar, Filter, CheckCircle2, Lock, Edit3, Trash2 } from 'lucide-react';
 import CreateStudentModal from './CreateStudentModal';
 import StudentDetailModal from './StudentDetailModal';
 
 export default function StudentsTab() {
   const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState('ALL');
   const [onlyUnassigned, setOnlyUnassigned] = useState(false);
@@ -24,22 +25,42 @@ export default function StudentsTab() {
 
   async function loadStudents() {
     setLoading(true);
-    const data = await fetchStudents(search, roleFilter, onlyUnassigned);
-    setStudents(data || []);
-    setLoading(false);
+    setError('');
+    try {
+      const data = await fetchStudents(search, roleFilter, onlyUnassigned);
+      setStudents(data || []);
+    } catch (err) {
+      setError(err.message);
+      setStudents([]);
+    } finally {
+      setLoading(false);
+    }
   }
 
   const handleCreateStudent = async (studentData) => {
-    const res = await createStudentApi(studentData);
-    if (res?.success) {
-      alert(res.message);
+    try {
+      await createStudentApi(studentData);
       loadStudents();
+    } catch (err) {
+      alert('Lỗi: ' + err.message);
     }
   };
 
   const handleViewDetail = (student) => {
     setSelectedStudent(student);
     setIsDetailModalOpen(true);
+  };
+
+  const handleQuickDelete = async (student) => {
+    if (confirm(`⚠️ Bạn có chắc chắn muốn xóa học viên "${student.full_name}" (CCCD: ${student.cccd})?`)) {
+      try {
+        await deleteStudentApi(student.id);
+        alert('Đã xóa thành công!');
+        loadStudents();
+      } catch (err) {
+        alert('Lỗi khi xóa: ' + err.message);
+      }
+    }
   };
 
   return (
@@ -51,7 +72,7 @@ export default function StudentsTab() {
             <Users className="w-6 h-6 mr-2 text-blue-600" /> Quản Lý & Giám Sát Học Viên
           </h1>
           <p className="text-xs text-slate-500 mt-1">
-            Tạo tài khoản học viên/admin, tra cứu CCCD, giám sát tiến độ học lý thuyết & thực hành
+            Tạo tài khoản học viên/admin, tra cứu CCCD, chỉnh sửa thông tin, đổi avatar/mật khẩu & xóa tài khoản
           </p>
         </div>
 
@@ -107,6 +128,18 @@ export default function StudentsTab() {
         </div>
       </div>
 
+      {/* Thông báo lỗi */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-5 py-4 text-sm font-medium flex items-start gap-3">
+          <span className="text-red-500 text-lg leading-none">⚠️</span>
+          <div>
+            <p className="font-bold">Không thể tải dữ liệu học viên</p>
+            <p className="text-red-500 text-xs mt-1">{error}</p>
+            <p className="text-slate-500 text-xs mt-2">👉 Hãy chắc chắn đã chạy file SQL schema trên Supabase để tạo bảng <code>students</code>.</p>
+          </div>
+        </div>
+      )}
+
       {/* Bảng Danh Sách Học Viên */}
       <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden">
         {loading ? (
@@ -134,7 +167,7 @@ export default function StudentsTab() {
                     <td className="py-3.5 px-4 font-bold text-slate-900">
                       <div className="flex items-center space-x-3">
                         <img
-                          src={st.avatar_url}
+                          src={st.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100'}
                           alt={st.full_name}
                           className="w-9 h-9 rounded-full object-cover ring-2 ring-blue-100"
                         />
@@ -190,14 +223,24 @@ export default function StudentsTab() {
                       </div>
                     </td>
 
-                    {/* Thao tác giám sát & sửa */}
+                    {/* Thao tác Chỉnh sửa & Xóa */}
                     <td className="py-3.5 px-4 text-center">
-                      <button
-                        onClick={() => handleViewDetail(st)}
-                        className="px-3 py-1.5 bg-blue-50 border border-blue-200 text-blue-700 hover:bg-blue-600 hover:text-white rounded-lg font-bold text-xs transition-colors inline-flex items-center"
-                      >
-                        <Eye className="w-3.5 h-3.5 mr-1" /> Giám Sát / Sửa
-                      </button>
+                      <div className="flex items-center justify-center gap-1.5">
+                        <button
+                          onClick={() => handleViewDetail(st)}
+                          className="px-2.5 py-1.5 bg-blue-50 border border-blue-200 text-blue-700 hover:bg-blue-600 hover:text-white rounded-lg font-bold text-xs transition-colors inline-flex items-center"
+                          title="Chỉnh sửa thông tin học viên"
+                        >
+                          <Edit3 className="w-3.5 h-3.5 mr-1" /> Sửa
+                        </button>
+                        <button
+                          onClick={() => handleQuickDelete(st)}
+                          className="px-2.5 py-1.5 bg-red-50 border border-red-200 text-red-600 hover:bg-red-600 hover:text-white rounded-lg font-bold text-xs transition-colors inline-flex items-center"
+                          title="Xóa tài khoản học viên"
+                        >
+                          <Trash2 className="w-3.5 h-3.5 mr-1" /> Xóa
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -219,12 +262,13 @@ export default function StudentsTab() {
         onCreateStudent={handleCreateStudent}
       />
 
-      {/* Modal Giám Sát & Sửa Đổi Thông Tin */}
+      {/* Modal Cửa Sổ Nhỏ Chỉnh Sửa Thông Tin Học Viên (Tương tự trang Account) */}
       <StudentDetailModal
         isOpen={isDetailModalOpen}
         onClose={() => setIsDetailModalOpen(false)}
         student={selectedStudent}
         onUpdateStudent={loadStudents}
+        onDeleteStudent={loadStudents}
       />
     </div>
   );

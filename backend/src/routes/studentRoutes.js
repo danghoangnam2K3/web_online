@@ -12,4 +12,7 @@ router.post('/', studentController.createStudent);
 // Giám sát & chỉnh sửa thông tin học viên
 router.put('/:id', studentController.updateStudent);
 
+// Xóa học viên
+router.delete('/:id', studentController.deleteStudent);
+
 module.exports = router;

@@ -57,9 +57,8 @@ export default function StudentDetailModal({ isOpen, onClose, student, onUpdateS
           />
           <div>
             <div className="flex items-center space-x-2">
-              <span className={`px-2.5 py-0.5 rounded text-[11px] font-extrabold uppercase ${
-                student.role === 'admin' ? 'bg-purple-100 text-purple-800' : 'bg-blue-100 text-blue-800'
-              }`}>
+              <span className={`px-2.5 py-0.5 rounded text-[11px] font-extrabold uppercase ${student.role === 'admin' ? 'bg-purple-100 text-purple-800' : 'bg-blue-100 text-blue-800'
+                }`}>
                 {student.role === 'admin' ? 'Quản Trị Viên' : 'Học Viên'}
               </span>
               <span className="text-xs font-mono font-bold text-slate-400">ID: {student.id}</span>

@@ -9,6 +9,7 @@ import CourseDetailModal from './CourseDetailModal';
 export default function CoursesTab({ initialSelectedCourseId }) {
   const [courses, setCourses] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [selectedTier, setSelectedTier] = useState('ALL');
 
@@ -23,25 +24,28 @@ export default function CoursesTab({ initialSelectedCourseId }) {
 
   async function loadCourses() {
     setLoading(true);
-    const data = await fetchCourses(search, selectedTier);
-    setCourses(data || []);
-    setLoading(false);
-
-    // Nếu chọn từ dashboard
-    if (initialSelectedCourseId && data) {
-      const found = data.find(c => c.id === initialSelectedCourseId);
-      if (found) {
-        setSelectedCourse(found);
-        setIsDetailModalOpen(true);
+    setError('');
+    try {
+      const data = await fetchCourses(search, selectedTier);
+      setCourses(data || []);
+      if (initialSelectedCourseId && data) {
+        const found = data.find(c => c.id === initialSelectedCourseId);
+        if (found) { setSelectedCourse(found); setIsDetailModalOpen(true); }
       }
+    } catch (err) {
+      setError(err.message);
+      setCourses([]);
+    } finally {
+      setLoading(false);
     }
   }
 
   const handleCreateCourse = async (newCourseData) => {
-    const res = await createCourseApi(newCourseData);
-    if (res?.success) {
-      alert(res.message);
+    try {
+      await createCourseApi(newCourseData);
       loadCourses();
+    } catch (err) {
+      alert('Lỗi: ' + err.message);
     }
   };
 
@@ -105,6 +109,18 @@ export default function CoursesTab({ initialSelectedCourseId }) {
           ))}
         </div>
       </div>
+
+      {/* Thông báo lỗi */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-5 py-4 text-sm font-medium flex items-start gap-3">
+          <span className="text-red-500 text-lg leading-none">⚠️</span>
+          <div>
+            <p className="font-bold">Không thể tải dữ liệu khóa học</p>
+            <p className="text-red-500 text-xs mt-1">{error}</p>
+            <p className="text-slate-500 text-xs mt-2">👉 Hãy chắc chắn đã chạy file SQL schema trên Supabase để tạo các bảng cần thiết.</p>
+          </div>
+        </div>
+      )}
 
       {/* Grid Danh Sách Khóa Học */}
       {loading ? (
