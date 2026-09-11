@@ -241,26 +241,42 @@ async function changePassword(req, res) {
   if (new_password.length < 6)
     return res.status(400).json({ success: false, message: 'Mật khẩu mới phải có ít nhất 6 ký tự!' });
 
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!serviceKey) {
-    const token = req.headers.authorization?.replace('Bearer ', '');
-    if (!token) return res.status(400).json({ success: false, message: 'Cần Token hoặc Service Role Key để cập nhật mật khẩu!' });
+  const supabase = createClient(supabaseUrl, supabaseKey);
 
-    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-      global: { headers: { Authorization: `Bearer ${token}` } }
+  // Bước 1: Cập nhật cột password trong bảng students (đăng nhập dùng plain-text so sánh trực tiếp)
+  const { data: updatedStudent, error: dbError } = await supabase
+    .from('students')
+    .update({ password: new_password, updated_at: new Date().toISOString() })
+    .eq('id', user_id)
+    .select()
+    .single();
+
+  if (dbError || !updatedStudent) {
+    return res.status(400).json({
+      success: false,
+      message: 'Không tìm thấy tài khoản hoặc lỗi cập nhật: ' + (dbError?.message || 'unknown')
     });
-    const { error } = await supabase.auth.updateUser({ password: new_password });
-    if (error) return res.status(400).json({ success: false, message: error.message });
-    return res.json({ success: true, message: 'Đổi mật khẩu trên Supabase thành công!' });
   }
 
-  const supabaseAdmin = createClient(supabaseUrl, serviceKey, {
-    auth: { autoRefreshToken: false, persistSession: false }
-  });
-  const { error } = await supabaseAdmin.auth.admin.updateUserById(user_id, { password: new_password });
-  if (error) return res.status(400).json({ success: false, message: error.message });
+  // Bước 2: Thử cập nhật Supabase Auth nếu có Service Role Key (không bắt buộc)
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (serviceKey && updatedStudent.email) {
+    try {
+      const supabaseAdmin = createClient(supabaseUrl, serviceKey, {
+        auth: { autoRefreshToken: false, persistSession: false }
+      });
+      // Tìm user Supabase Auth theo email
+      const { data: authList } = await supabaseAdmin.auth.admin.listUsers();
+      const authUser = authList?.users?.find(u => u.email === updatedStudent.email);
+      if (authUser) {
+        await supabaseAdmin.auth.admin.updateUserById(authUser.id, { password: new_password });
+      }
+    } catch (authErr) {
+      console.warn('Supabase Auth password update skipped:', authErr.message);
+    }
+  }
 
-  return res.json({ success: true, message: 'Đổi mật khẩu trên Supabase thành công!' });
+  return res.json({ success: true, message: 'Đổi mật khẩu thành công!' });
 }
 
 // ─── Cập nhật thông tin tài khoản trên Supabase ──────────────────────────────
@@ -270,12 +286,12 @@ async function updateProfile(req, res) {
   const { full_name, phone, avatar_url, dob, cccd, gender, workplace, address, bio, email: reqEmail } = req.body;
   const token = req.headers.authorization?.replace('Bearer ', '');
 
-  const supabase = createClient(supabaseUrl, supabaseAnonKey);
+  const supabase = createClient(supabaseUrl, supabaseKey);
 
   let targetEmail = reqEmail;
   if (token) {
     try {
-      const userSupabase = createClient(supabaseUrl, supabaseAnonKey, {
+      const userSupabase = createClient(supabaseUrl, supabaseKey, {
         global: { headers: { Authorization: `Bearer ${token}` } }
       });
       const { data: authData } = await userSupabase.auth.updateUser({
@@ -365,7 +381,7 @@ async function getMyStudentProfile(req, res) {
   const { email } = req.query;
   if (!email) return res.status(400).json({ success: false, message: 'Thiếu email!' });
 
-  const supabase = createClient(supabaseUrl, supabaseAnonKey);
+  const supabase = createClient(supabaseUrl, supabaseKey);
 
   const { data: student, error } = await supabase
     .from('students')
