@@ -317,19 +317,29 @@ async function updateProfile(req, res) {
 async function uploadAvatar(req, res) {
   if (!checkSupabaseEnv(res)) return;
 
-  const token = req.headers.authorization?.replace('Bearer ', '');
   const { base64, fileName, mimeType } = req.body;
 
   if (!base64 || !fileName)
     return res.status(400).json({ success: false, message: 'Thiếu dữ liệu ảnh!' });
 
-  const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-    global: { headers: { Authorization: `Bearer ${token}` } }
-  });
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
+  const supabase = createClient(supabaseUrl, serviceKey);
 
   const base64Data = base64.replace(/^data:image\/\w+;base64,/, '');
   const buffer     = Buffer.from(base64Data, 'base64');
-  const filePath   = `public/${Date.now()}_${fileName}`;
+  const cleanFileName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const filePath   = `avatars/${Date.now()}_${cleanFileName}`;
+
+  // Kiểm tra / Tạo bucket 'avatars' trên Supabase Storage nếu chưa có
+  try {
+    const { data: buckets } = await supabase.storage.listBuckets();
+    const hasBucket = buckets?.some(b => b.name === 'avatars');
+    if (!hasBucket) {
+      await supabase.storage.createBucket('avatars', { public: true });
+    }
+  } catch (bErr) {
+    console.warn('Check bucket warning:', bErr.message);
+  }
 
   const { data, error } = await supabase.storage
     .from('avatars')
@@ -338,7 +348,10 @@ async function uploadAvatar(req, res) {
       upsert: true
     });
 
-  if (error) return res.status(400).json({ success: false, message: error.message });
+  if (error) {
+    console.error('Supabase Storage upload error:', error.message);
+    return res.status(400).json({ success: false, message: 'Lỗi upload lên Supabase Storage: ' + error.message });
+  }
 
   const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(filePath);
 

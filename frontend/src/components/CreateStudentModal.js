@@ -47,7 +47,7 @@ export default function CreateStudentModal({ isOpen, onClose, onCreateStudent })
 
       try {
         const token = typeof window !== 'undefined' ? (localStorage.getItem('token') || '') : '';
-        const res = await fetch(`${BASE_URL}/auth/upload-avatar`, {
+        let res = await fetch(`${BASE_URL}/students/upload-avatar`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -55,6 +55,16 @@ export default function CreateStudentModal({ isOpen, onClose, onCreateStudent })
           },
           body: JSON.stringify({ base64, fileName: file.name, mimeType: file.type })
         });
+        if (!res.ok) {
+          res = await fetch(`${BASE_URL}/auth/upload-avatar`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(token ? { Authorization: `Bearer ${token}` } : {})
+            },
+            body: JSON.stringify({ base64, fileName: file.name, mimeType: file.type })
+          });
+        }
         const json = await res.json();
         if (json.success && json.data?.url) {
           setAvatarPreview(json.data.url);

@@ -205,10 +205,62 @@ exports.deleteStudent = async (req, res) => {
   }
 };
 
+// ─── Upload avatar học viên lên Supabase Storage ──────────────────────────────
+exports.uploadAvatar = async (req, res) => {
+  try {
+    checkSupabase();
+    const { base64, fileName, mimeType } = req.body;
+
+    if (!base64 || !fileName) {
+      return res.status(400).json({ success: false, message: 'Thiếu dữ liệu ảnh!' });
+    }
+
+    const base64Data = base64.replace(/^data:image\/\w+;base64,/, '');
+    const buffer = Buffer.from(base64Data, 'base64');
+    const cleanFileName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const filePath = `avatars/${Date.now()}_${cleanFileName}`;
+
+    // Kiểm tra / Tạo bucket 'avatars' trên Supabase Storage nếu chưa có
+    try {
+      const { data: buckets } = await supabase.storage.listBuckets();
+      const hasBucket = buckets?.some(b => b.name === 'avatars');
+      if (!hasBucket) {
+        await supabase.storage.createBucket('avatars', { public: true });
+      }
+    } catch (bErr) {
+      console.warn('Check bucket warning:', bErr.message);
+    }
+
+    const { data, error } = await supabase.storage
+      .from('avatars')
+      .upload(filePath, buffer, {
+        contentType: mimeType || 'image/jpeg',
+        upsert: true
+      });
+
+    if (error) {
+      console.error('Supabase Storage upload error:', error.message);
+      return res.status(400).json({ success: false, message: 'Lỗi upload lên Supabase Storage: ' + error.message });
+    }
+
+    const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(filePath);
+
+    return res.json({
+      success: true,
+      message: 'Tải ảnh lên Supabase Storage thành công!',
+      data: { url: urlData.publicUrl }
+    });
+  } catch (err) {
+    console.error('uploadAvatar exception:', err.message);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
 // ─── Dùng nội bộ bởi reportController ────────────────────────────────────────
 exports._getStudentsListInternal = async () => {
   if (!supabase) return [];
   const { data } = await supabase.from('students').select('*');
   return data || [];
 };
+
 

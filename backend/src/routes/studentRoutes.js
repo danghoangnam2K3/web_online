@@ -6,6 +6,9 @@ const studentController = require('../controllers/studentController');
 router.get('/', studentController.getAllStudents);
 router.get('/:id', studentController.getStudentById);
 
+// Upload avatar học viên
+router.post('/upload-avatar', studentController.uploadAvatar);
+
 // Tạo tài khoản (Học viên / Admin)
 router.post('/', studentController.createStudent);
 
