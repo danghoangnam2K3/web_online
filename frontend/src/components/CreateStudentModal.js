@@ -2,10 +2,14 @@
 
 import React, { useState, useRef } from 'react';
 import { X, UserPlus, Shield, User, CheckCircle, Camera, Upload } from 'lucide-react';
+import { useAuth } from '../lib/AuthContext';
 
 const BASE_URL = 'https://web-online-wbn5.onrender.com/api';
 
 export default function CreateStudentModal({ isOpen, onClose, onCreateStudent }) {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
+
   const [formData, setFormData] = useState({
     full_name: '',
     username: '',
@@ -25,7 +29,7 @@ export default function CreateStudentModal({ isOpen, onClose, onCreateStudent })
   const [avatarUploading, setAvatarUploading] = useState(false);
   const fileInputRef = useRef(null);
 
-  if (!isOpen) return null;
+  if (!isOpen || !isAdmin) return null;
 
   const handleAvatarFile = (file) => {
     if (!file) return;

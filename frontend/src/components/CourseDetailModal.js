@@ -17,7 +17,8 @@ import {
   Award,
   Layers,
   ChevronRight,
-  Sliders
+  Sliders,
+  Eye
 } from 'lucide-react';
 import {
   createChapterApi,
@@ -27,8 +28,12 @@ import {
   fetchStudents
 } from '../lib/api';
 import CreateLessonModal from './CreateLessonModal';
+import { useAuth } from '../lib/AuthContext';
 
 export default function CourseDetailModal({ isOpen, onClose, course, onUpdateCourse }) {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
+
   const [activeSubTab, setActiveSubTab] = useState('intro'); // 'intro' hoặc 'lessons'
   
   // States cho bài học & quy trình 3 bước + add học viên
@@ -267,56 +272,65 @@ export default function CourseDetailModal({ isOpen, onClose, course, onUpdateCou
           {activeSubTab === 'lessons' && (
             <div className="space-y-8">
               
-              {/* BƯỚC 1: TẠO CHƯƠNG */}
-              <div className="bg-white p-6 rounded-xl border border-slate-200/80 shadow-sm space-y-4">
-                <div className="flex items-center space-x-3">
-                  <div className="w-8 h-8 rounded-lg bg-blue-600 text-white font-extrabold flex items-center justify-center text-sm shadow">
-                    1
-                  </div>
-                  <div>
-                    <h3 className="text-base font-bold text-slate-900">Bước 1: Tạo Chương Mới Cho Khóa Học</h3>
-                    <p className="text-xs text-slate-500">Phân chia lộ trình học lý thuyết, biển báo, sa hình hoặc tình huống mô phỏng</p>
-                  </div>
+              {!isAdmin && (
+                <div className="p-4 bg-blue-50 border border-blue-200 text-blue-800 rounded-xl text-xs font-bold flex items-center gap-2">
+                  <Eye className="w-4 h-4 text-blue-600 shrink-0" />
+                  <span>Bạn đang xem chương trình học dưới quyền Học Viên (Chỉ được phép xem bài học, không chỉnh sửa).</span>
                 </div>
+              )}
 
-                <form onSubmit={handleAddChapter} className="flex flex-col sm:flex-row gap-3 pt-2">
-                  <input
-                    type="text"
-                    required
-                    placeholder="VD: Chương 1: Luật Giao thông & Biển báo cấm..."
-                    value={newChapterTitle}
-                    onChange={(e) => setNewChapterTitle(e.target.value)}
-                    className="flex-1 px-3.5 py-2.5 rounded-lg border border-slate-300 text-sm focus:ring-2 focus:ring-blue-600 outline-none"
-                  />
-                  <div className="w-full sm:w-44 flex items-center space-x-1">
-                    <span className="text-xs font-bold text-slate-600 whitespace-nowrap">% Hoàn thành:</span>
-                    <input
-                      type="number"
-                      min={50}
-                      max={100}
-                      value={minChapterPct}
-                      onChange={(e) => setMinChapterPct(e.target.value)}
-                      className="w-16 px-2 py-2 border rounded-lg text-sm text-center font-bold"
-                    />
+              {/* BƯỚC 1: TẠO CHƯƠNG (Chỉ dành cho Admin) */}
+              {isAdmin && (
+                <div className="bg-white p-6 rounded-xl border border-slate-200/80 shadow-sm space-y-4">
+                  <div className="flex items-center space-x-3">
+                    <div className="w-8 h-8 rounded-lg bg-blue-600 text-white font-extrabold flex items-center justify-center text-sm shadow">
+                      1
+                    </div>
+                    <div>
+                      <h3 className="text-base font-bold text-slate-900">Bước 1: Tạo Chương Mới Cho Khóa Học</h3>
+                      <p className="text-xs text-slate-500">Phân chia lộ trình học lý thuyết, biển báo, sa hình hoặc tình huống mô phỏng</p>
+                    </div>
                   </div>
-                  <button
-                    type="submit"
-                    className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-lg shadow-sm flex items-center justify-center whitespace-nowrap"
-                  >
-                    <Plus className="w-4 h-4 mr-1" /> Thêm Chương
-                  </button>
-                </form>
-              </div>
+
+                  <form onSubmit={handleAddChapter} className="flex flex-col sm:flex-row gap-3 pt-2">
+                    <input
+                      type="text"
+                      required
+                      placeholder="VD: Chương 1: Luật Giao thông & Biển báo cấm..."
+                      value={newChapterTitle}
+                      onChange={(e) => setNewChapterTitle(e.target.value)}
+                      className="flex-1 px-3.5 py-2.5 rounded-lg border border-slate-300 text-sm focus:ring-2 focus:ring-blue-600 outline-none"
+                    />
+                    <div className="w-full sm:w-44 flex items-center space-x-1">
+                      <span className="text-xs font-bold text-slate-600 whitespace-nowrap">% Hoàn thành:</span>
+                      <input
+                        type="number"
+                        min={50}
+                        max={100}
+                        value={minChapterPct}
+                        onChange={(e) => setMinChapterPct(e.target.value)}
+                        className="w-16 px-2 py-2 border rounded-lg text-sm text-center font-bold"
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-lg shadow-sm flex items-center justify-center whitespace-nowrap"
+                    >
+                      <Plus className="w-4 h-4 mr-1" /> Thêm Chương
+                    </button>
+                  </form>
+                </div>
+              )}
 
               {/* BƯỚC 2: DANH SÁCH CHƯƠNG VÀ TẠO BÀI GIẢNG */}
               <div className="bg-white p-6 rounded-xl border border-slate-200/80 shadow-sm space-y-4">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-3">
                     <div className="w-8 h-8 rounded-lg bg-blue-600 text-white font-extrabold flex items-center justify-center text-sm shadow">
-                      2
+                      {isAdmin ? '2' : '1'}
                     </div>
                     <div>
-                      <h3 className="text-base font-bold text-slate-900">Bước 2: Tạo Bài Giảng Của Chương</h3>
+                      <h3 className="text-base font-bold text-slate-900">Danh Sách Chương & Bài Giảng</h3>
                       <p className="text-xs text-slate-500">Bài giảng bao gồm: Video bài giảng, Tài liệu đọc, hoặc Bài kiểm tra trắc nghiệm</p>
                     </div>
                   </div>
@@ -337,15 +351,17 @@ export default function CourseDetailModal({ isOpen, onClose, course, onUpdateCou
                             </span>
                           </div>
 
-                          <button
-                            onClick={() => {
-                              setSelectedChapterForLesson(ch);
-                              setIsLessonModalOpen(true);
-                            }}
-                            className="px-3 py-1.5 bg-white border border-blue-300 text-blue-700 hover:bg-blue-50 text-xs font-bold rounded-lg flex items-center shadow-sm w-fit"
-                          >
-                            <Plus className="w-3.5 h-3.5 mr-1" /> Thêm Bài Giảng Cho Chương
-                          </button>
+                          {isAdmin && (
+                            <button
+                              onClick={() => {
+                                setSelectedChapterForLesson(ch);
+                                setIsLessonModalOpen(true);
+                              }}
+                              className="px-3 py-1.5 bg-white border border-blue-300 text-blue-700 hover:bg-blue-50 text-xs font-bold rounded-lg flex items-center shadow-sm w-fit"
+                            >
+                              <Plus className="w-3.5 h-3.5 mr-1" /> Thêm Bài Giảng Cho Chương
+                            </button>
+                          )}
                         </div>
 
                         {/* Danh sách bài giảng trong Chương */}
@@ -374,7 +390,9 @@ export default function CourseDetailModal({ isOpen, onClose, course, onUpdateCou
                             ))
                           ) : (
                             <p className="text-xs text-slate-400 italic text-center py-2">
-                              Chương này chưa có bài giảng. Nhấn "Thêm Bài Giảng" để tạo Video hoặc Trắc nghiệm.
+                              {isAdmin 
+                                ? 'Chương này chưa có bài giảng. Nhấn "Thêm Bài Giảng" để tạo Video hoặc Trắc nghiệm.' 
+                                : 'Chương này chưa có bài giảng.'}
                             </p>
                           )}
                         </div>
@@ -383,96 +401,99 @@ export default function CourseDetailModal({ isOpen, onClose, course, onUpdateCou
                   </div>
                 ) : (
                   <p className="text-xs text-amber-700 bg-amber-50 p-4 rounded-xl border border-amber-200">
-                    ⚠️ Chưa có chương nào. Hãy thực hiện <strong>Bước 1</strong> tạo Chương trước khi thêm Bài giảng.
+                    ⚠️ Khóa học này chưa được cấu hình chương bài giảng.
                   </p>
                 )}
               </div>
 
-              {/* BƯỚC 3: QUY ĐỊNH ĐIỀU KIỆN HOÀN THÀNH */}
-              <div className="bg-white p-6 rounded-xl border border-slate-200/80 shadow-sm space-y-4">
-                <div className="flex items-center space-x-3">
-                  <div className="w-8 h-8 rounded-lg bg-blue-600 text-white font-extrabold flex items-center justify-center text-sm shadow">
-                    3
-                  </div>
-                  <div>
-                    <h3 className="text-base font-bold text-slate-900">Bước 3: Tạo Điều Kiện Hoàn Thành Chương & Mở Bài Giảng</h3>
-                    <p className="text-xs text-slate-500">Quy định % thời gian học để hoàn thành chương và % học bài 1 mới qua bài 2</p>
-                  </div>
-                </div>
-
-                <form onSubmit={handleSaveRules} className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">Chọn Chương Cần Cấu Hình</label>
-                    <select
-                      value={ruleChapterId}
-                      onChange={(e) => setRuleChapterId(e.target.value)}
-                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs font-bold outline-none bg-white"
-                    >
-                      {course.chapters?.map((c) => (
-                        <option key={c.id} value={c.id}>{c.title}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">
-                      % Thời gian học tối thiểu hoàn thành chương
-                    </label>
-                    <div className="flex items-center">
-                      <input
-                        type="number"
-                        min={50}
-                        max={100}
-                        value={ruleMinChapterPct}
-                        onChange={(e) => setRuleMinChapterPct(e.target.value)}
-                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs font-bold outline-none"
-                      />
-                      <span className="ml-2 font-bold text-xs text-slate-600">%</span>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">
-                      % Hoàn thành Bài 1 mới mở Bài 2
-                    </label>
-                    <div className="flex items-center">
-                      <input
-                        type="number"
-                        min={50}
-                        max={100}
-                        value={ruleMinWatchPct}
-                        onChange={(e) => setRuleMinWatchPct(e.target.value)}
-                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs font-bold outline-none"
-                      />
-                      <span className="ml-2 font-bold text-xs text-slate-600">%</span>
-                    </div>
-                  </div>
-
-                  <div className="sm:col-span-3 flex justify-end">
-                    <button
-                      type="submit"
-                      className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-lg flex items-center shadow"
-                    >
-                      <Sliders className="w-3.5 h-3.5 mr-1.5" /> Lưu Điều Kiện Hoàn Thành
-                    </button>
-                  </div>
-                </form>
-              </div>
-
-              {/* BƯỚC 4 / ADD HỌC VIÊN CHƯA ADD VÀO KHÓA */}
-              <div className="bg-white p-6 rounded-xl border border-blue-200 shadow-sm space-y-4 bg-gradient-to-br from-blue-50/40 to-white">
-                <div className="flex items-center justify-between">
+              {/* BƯỚC 3: QUY ĐỊNH ĐIỀU KIỆN HOÀN THÀNH (Chỉ dành cho Admin) */}
+              {isAdmin && (
+                <div className="bg-white p-6 rounded-xl border border-slate-200/80 shadow-sm space-y-4">
                   <div className="flex items-center space-x-3">
-                    <div className="w-8 h-8 rounded-lg bg-emerald-600 text-white font-extrabold flex items-center justify-center text-sm shadow">
-                      4
+                    <div className="w-8 h-8 rounded-lg bg-blue-600 text-white font-extrabold flex items-center justify-center text-sm shadow">
+                      3
                     </div>
                     <div>
-                      <h3 className="text-base font-bold text-slate-900">Thêm Học Viên Vào Khóa Học</h3>
-                      <p className="text-xs text-slate-500">
-                        Lấy học viên chưa được xếp khóa từ trang <strong className="text-blue-700">"Học Viên"</strong> để add vào khóa học này.
-                      </p>
+                      <h3 className="text-base font-bold text-slate-900">Bước 3: Tạo Điều Kiện Hoàn Thành Chương & Mở Bài Giảng</h3>
+                      <p className="text-xs text-slate-500">Quy định % thời gian học để hoàn thành chương và % học bài 1 mới qua bài 2</p>
                     </div>
                   </div>
+
+                  <form onSubmit={handleSaveRules} className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Chọn Chương Cần Cấu Hình</label>
+                      <select
+                        value={ruleChapterId}
+                        onChange={(e) => setRuleChapterId(e.target.value)}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs font-bold outline-none bg-white"
+                      >
+                        {course.chapters?.map((c) => (
+                          <option key={c.id} value={c.id}>{c.title}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        % Thời gian học tối thiểu hoàn thành chương
+                      </label>
+                      <div className="flex items-center">
+                        <input
+                          type="number"
+                          min={50}
+                          max={100}
+                          value={ruleMinChapterPct}
+                          onChange={(e) => setRuleMinChapterPct(e.target.value)}
+                          className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs font-bold outline-none"
+                        />
+                        <span className="ml-2 font-bold text-xs text-slate-600">%</span>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        % Hoàn thành Bài 1 mới mở Bài 2
+                      </label>
+                      <div className="flex items-center">
+                        <input
+                          type="number"
+                          min={50}
+                          max={100}
+                          value={ruleMinWatchPct}
+                          onChange={(e) => setRuleMinWatchPct(e.target.value)}
+                          className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs font-bold outline-none"
+                        />
+                        <span className="ml-2 font-bold text-xs text-slate-600">%</span>
+                      </div>
+                    </div>
+
+                    <div className="sm:col-span-3 flex justify-end">
+                      <button
+                        type="submit"
+                        className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-lg flex items-center shadow"
+                      >
+                        <Sliders className="w-3.5 h-3.5 mr-1.5" /> Lưu Điều Kiện Hoàn Thành
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              )}
+
+              {/* BƯỚC 4 / ADD HỌC VIÊN CHƯA ADD VÀO KHÓA (Chỉ dành cho Admin) */}
+              {isAdmin && (
+                <div className="bg-white p-6 rounded-xl border border-blue-200 shadow-sm space-y-4 bg-gradient-to-br from-blue-50/40 to-white">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-3">
+                      <div className="w-8 h-8 rounded-lg bg-emerald-600 text-white font-extrabold flex items-center justify-center text-sm shadow">
+                        4
+                      </div>
+                      <div>
+                        <h3 className="text-base font-bold text-slate-900">Thêm Học Viên Vào Khóa Học</h3>
+                        <p className="text-xs text-slate-500">
+                          Lấy học viên chưa được xếp khóa từ trang <strong className="text-blue-700">"Học Viên"</strong> để add vào khóa học này.
+                        </p>
+                      </div>
+                    </div>
 
                   <button
                     onClick={handleEnrollStudents}
@@ -532,6 +553,7 @@ export default function CourseDetailModal({ isOpen, onClose, course, onUpdateCou
                   )}
                 </div>
               </div>
+              )}
 
             </div>
           )}

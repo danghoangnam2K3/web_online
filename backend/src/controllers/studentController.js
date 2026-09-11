@@ -133,6 +133,7 @@ exports.updateStudent = async (req, res) => {
     if (body.avatar_url !== undefined)  baseUpdate.avatar_url = body.avatar_url || null;
     if (body.course_name !== undefined) baseUpdate.course_name = body.course_name;
     if (body.progress !== undefined)    baseUpdate.progress   = parseInt(body.progress) || 0;
+    if (body.password !== undefined && String(body.password).trim() !== '') baseUpdate.password = String(body.password).trim();
 
     // Thử cập nhật đầy đủ các trường (bao gồm gender, workplace, address, bio, password nếu bảng đã có)
     const fullUpdate = { ...baseUpdate };
@@ -140,7 +141,6 @@ exports.updateStudent = async (req, res) => {
     if (body.workplace !== undefined) fullUpdate.workplace = body.workplace;
     if (body.address !== undefined)   fullUpdate.address   = body.address;
     if (body.bio !== undefined)       fullUpdate.bio       = body.bio;
-    if (body.password !== undefined && String(body.password).trim() !== '') fullUpdate.password = body.password;
 
     let { data, error } = await supabase
       .from('students')

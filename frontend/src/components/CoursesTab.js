@@ -2,11 +2,15 @@
 
 import React, { useState, useEffect } from 'react';
 import { fetchCourses, createCourseApi } from '../lib/api';
+import { useAuth } from '../lib/AuthContext';
 import { PlusCircle, Search, Filter, BookOpen, Users, Clock, Eye, Layers } from 'lucide-react';
 import CreateCourseModal from './CreateCourseModal';
 import CourseDetailModal from './CourseDetailModal';
 
 export default function CoursesTab({ initialSelectedCourseId }) {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
+
   const [courses, setCourses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -41,6 +45,10 @@ export default function CoursesTab({ initialSelectedCourseId }) {
   }
 
   const handleCreateCourse = async (newCourseData) => {
+    if (!isAdmin) {
+      alert('Tài khoản học viên không có quyền tạo khóa học!');
+      return;
+    }
     try {
       await createCourseApi(newCourseData);
       loadCourses();
@@ -63,17 +71,21 @@ export default function CoursesTab({ initialSelectedCourseId }) {
             <BookOpen className="w-6 h-6 mr-2 text-blue-600" /> Quản Lý Khóa Học GPLX
           </h1>
           <p className="text-xs text-slate-500 mt-1">
-            Danh sách khóa học, tạo khóa học mới, thiết kế bài giảng lý thuyết & sa hình
+            {isAdmin 
+              ? 'Danh sách khóa học, tạo khóa học mới, thiết kế bài giảng lý thuyết & sa hình' 
+              : 'Danh sách các khóa học đào tạo GPLX (Chế độ xem - Học viên)'}
           </p>
         </div>
 
-        {/* Nút Add Khóa Học */}
-        <button
-          onClick={() => setIsCreateModalOpen(true)}
-          className="px-5 py-2.5 rounded-xl font-bold text-sm text-white gradient-blue-bg hover:opacity-95 shadow-md shadow-blue-500/20 flex items-center justify-center transition-all scale-[1.01] hover:scale-[1.03]"
-        >
-          <PlusCircle className="w-5 h-5 mr-2" /> Thêm Khóa Học Mới
-        </button>
+        {/* Nút Add Khóa Học chỉ cho Admin */}
+        {isAdmin && (
+          <button
+            onClick={() => setIsCreateModalOpen(true)}
+            className="px-5 py-2.5 rounded-xl font-bold text-sm text-white gradient-blue-bg hover:opacity-95 shadow-md shadow-blue-500/20 flex items-center justify-center transition-all scale-[1.01] hover:scale-[1.03]"
+          >
+            <PlusCircle className="w-5 h-5 mr-2" /> Thêm Khóa Học Mới
+          </button>
+        )}
       </div>
 
       {/* Bộ Lọc & Tìm Kiếm */}

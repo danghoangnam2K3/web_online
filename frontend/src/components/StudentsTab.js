@@ -2,11 +2,15 @@
 
 import React, { useState, useEffect } from 'react';
 import { fetchStudents, createStudentApi, deleteStudentApi } from '../lib/api';
+import { useAuth } from '../lib/AuthContext';
 import { Users, UserPlus, Search, Shield, Eye, CreditCard, Calendar, Filter, CheckCircle2, Lock, Edit3, Trash2 } from 'lucide-react';
 import CreateStudentModal from './CreateStudentModal';
 import StudentDetailModal from './StudentDetailModal';
 
 export default function StudentsTab() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
+
   const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -38,6 +42,10 @@ export default function StudentsTab() {
   }
 
   const handleCreateStudent = async (studentData) => {
+    if (!isAdmin) {
+      alert('Bạn không có quyền tạo tài khoản học viên mới!');
+      return;
+    }
     try {
       await createStudentApi(studentData);
       loadStudents();
@@ -52,6 +60,10 @@ export default function StudentsTab() {
   };
 
   const handleQuickDelete = async (student) => {
+    if (!isAdmin) {
+      alert('Tài khoản học viên không có quyền xóa dữ liệu!');
+      return;
+    }
     if (confirm(`⚠️ Bạn có chắc chắn muốn xóa học viên "${student.full_name}" (CCCD: ${student.cccd})?`)) {
       try {
         await deleteStudentApi(student.id);
@@ -72,17 +84,26 @@ export default function StudentsTab() {
             <Users className="w-6 h-6 mr-2 text-blue-600" /> Quản Lý & Giám Sát Học Viên
           </h1>
           <p className="text-xs text-slate-500 mt-1">
-            Tạo tài khoản học viên/admin, tra cứu CCCD, chỉnh sửa thông tin, đổi avatar/mật khẩu & xóa tài khoản
+            {isAdmin 
+              ? 'Tạo tài khoản học viên/admin, tra cứu CCCD, chỉnh sửa thông tin, đổi avatar/mật khẩu & xóa tài khoản' 
+              : 'Danh sách học viên hệ thống (Chế độ xem - Tài khoản học viên)'}
           </p>
         </div>
 
-        {/* Nút Tạo Tài Khoản */}
-        <button
-          onClick={() => setIsCreateModalOpen(true)}
-          className="px-5 py-2.5 rounded-xl font-bold text-sm text-white gradient-blue-bg hover:opacity-95 shadow-md shadow-blue-500/20 flex items-center justify-center transition-all scale-[1.01] hover:scale-[1.03]"
-        >
-          <UserPlus className="w-5 h-5 mr-2" /> Tạo Tài Khoản Mới
-        </button>
+        {/* Nút Tạo Tài Khoản chỉ dành cho Admin */}
+        {isAdmin ? (
+          <button
+            onClick={() => setIsCreateModalOpen(true)}
+            className="px-5 py-2.5 rounded-xl font-bold text-sm text-white gradient-blue-bg hover:opacity-95 shadow-md shadow-blue-500/20 flex items-center justify-center transition-all scale-[1.01] hover:scale-[1.03]"
+          >
+            <UserPlus className="w-5 h-5 mr-2" /> Tạo Tài Khoản Mới
+          </button>
+        ) : (
+          <div className="px-4 py-2 bg-blue-50 border border-blue-200 text-blue-800 rounded-xl text-xs font-bold flex items-center gap-2">
+            <Eye className="w-4 h-4 text-blue-600" />
+            <span>Quyền truy cập: Chỉ Xem</span>
+          </div>
+        )}
       </div>
 
       {/* Thanh Lọc & Tìm Kiếm */}
@@ -223,23 +244,26 @@ export default function StudentsTab() {
                       </div>
                     </td>
 
-                    {/* Thao tác Chỉnh sửa & Xóa */}
+                    {/* Thao tác Chỉnh sửa / Xem & Xóa */}
                     <td className="py-3.5 px-4 text-center">
                       <div className="flex items-center justify-center gap-1.5">
                         <button
                           onClick={() => handleViewDetail(st)}
                           className="px-2.5 py-1.5 bg-blue-50 border border-blue-200 text-blue-700 hover:bg-blue-600 hover:text-white rounded-lg font-bold text-xs transition-colors inline-flex items-center"
-                          title="Chỉnh sửa thông tin học viên"
+                          title={isAdmin ? 'Chỉnh sửa thông tin học viên' : 'Xem thông tin học viên'}
                         >
-                          <Edit3 className="w-3.5 h-3.5 mr-1" /> Sửa
+                          {isAdmin ? <Edit3 className="w-3.5 h-3.5 mr-1" /> : <Eye className="w-3.5 h-3.5 mr-1" />}
+                          {isAdmin ? 'Sửa' : 'Xem Chi Tiết'}
                         </button>
-                        <button
-                          onClick={() => handleQuickDelete(st)}
-                          className="px-2.5 py-1.5 bg-red-50 border border-red-200 text-red-600 hover:bg-red-600 hover:text-white rounded-lg font-bold text-xs transition-colors inline-flex items-center"
-                          title="Xóa tài khoản học viên"
-                        >
-                          <Trash2 className="w-3.5 h-3.5 mr-1" /> Xóa
-                        </button>
+                        {isAdmin && (
+                          <button
+                            onClick={() => handleQuickDelete(st)}
+                            className="px-2.5 py-1.5 bg-red-50 border border-red-200 text-red-600 hover:bg-red-600 hover:text-white rounded-lg font-bold text-xs transition-colors inline-flex items-center"
+                            title="Xóa tài khoản học viên"
+                          >
+                            <Trash2 className="w-3.5 h-3.5 mr-1" /> Xóa
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>

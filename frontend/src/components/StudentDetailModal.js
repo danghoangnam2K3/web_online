@@ -1,15 +1,26 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Edit2, CheckCircle, Shield, User, Award, Calendar, CreditCard, Mail, Phone, Camera, Upload } from 'lucide-react';
+import { X, Edit2, CheckCircle, Shield, User, Award, Calendar, CreditCard, Mail, Phone, Camera, Upload, Lock, KeyRound, Eye, EyeOff } from 'lucide-react';
 import { updateStudentApi } from '../lib/api';
+import { useAuth } from '../lib/AuthContext';
 
 const BASE_URL = 'https://web-online-wbn5.onrender.com/api';
 
 export default function StudentDetailModal({ isOpen, onClose, student, onUpdateStudent }) {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
+
   const [isEditing, setIsEditing] = useState(false);
   const [formData, setFormData] = useState({});
   const [loading, setLoading] = useState(false);
+
+  // Mật khẩu State khi sửa học viên
+  const [changePasswordChecked, setChangePasswordChecked] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   // Avatar Modal State
   const [showAvatarModal, setShowAvatarModal] = useState(false);
@@ -32,6 +43,11 @@ export default function StudentDetailModal({ isOpen, onClose, student, onUpdateS
       });
       setAvatarPreview(initialAvatar);
       setIsEditing(false);
+      setChangePasswordChecked(false);
+      setNewPassword('');
+      setConfirmPassword('');
+      setShowNewPassword(false);
+      setShowConfirmPassword(false);
     }
   }, [student]);
 
@@ -92,12 +108,35 @@ export default function StudentDetailModal({ isOpen, onClose, student, onUpdateS
 
   const handleSave = async (e) => {
     e.preventDefault();
+    if (!isAdmin) {
+      alert('Tài khoản học viên chỉ có quyền xem, không được quyền chỉnh sửa!');
+      return;
+    }
+    const updateData = { ...formData };
+    if (changePasswordChecked) {
+      if (!newPassword) {
+        alert('Vui lòng nhập mật khẩu mới!');
+        return;
+      }
+      if (newPassword.length < 6) {
+        alert('Mật khẩu mới phải có ít nhất 6 ký tự!');
+        return;
+      }
+      if (newPassword !== confirmPassword) {
+        alert('Xác nhận mật khẩu mới không khớp!');
+        return;
+      }
+      updateData.password = newPassword;
+    }
+
     setLoading(true);
-    const res = await updateStudentApi(student.id, formData);
+    const res = await updateStudentApi(student.id, updateData);
     if (res?.success) {
       alert(res.message || 'Cập nhật thành công!');
       setIsEditing(false);
       onUpdateStudent();
+    } else {
+      alert(res?.message || 'Cập nhật thất bại!');
     }
     setLoading(false);
   };
@@ -115,24 +154,28 @@ export default function StudentDetailModal({ isOpen, onClose, student, onUpdateS
 
           {/* Top Info Header */}
           <div className="flex items-center space-x-4 mb-6 pb-4 border-b border-slate-100">
-            {/* Clickable Avatar with Camera Overlay */}
+            {/* Clickable Avatar với quyền Admin */}
             <div
-              onClick={() => setShowAvatarModal(true)}
-              className="relative group cursor-pointer flex-shrink-0"
-              title="Bấm vào đây để thay đổi ảnh đại diện"
+              onClick={() => { if (isAdmin) setShowAvatarModal(true); }}
+              className={`relative group flex-shrink-0 ${isAdmin ? 'cursor-pointer' : 'cursor-default'}`}
+              title={isAdmin ? 'Bấm vào đây để thay đổi ảnh đại diện' : 'Ảnh đại diện học viên'}
             >
               <img
                 src={formData.avatar_url || student.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150'}
                 alt={student.full_name}
                 className="w-16 h-16 rounded-full object-cover ring-4 ring-blue-100 shadow group-hover:ring-blue-400 transition-all"
               />
-              <div className="absolute inset-0 rounded-full bg-slate-900/50 opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center transition-all text-white text-[10px] font-semibold">
-                <Camera className="w-4 h-4 mb-0.5" />
-                <span>Đổi ảnh</span>
-              </div>
-              <div className="absolute -bottom-1 -right-1 bg-blue-600 p-1.5 rounded-full text-white shadow border-2 border-white group-hover:scale-110 transition-transform">
-                <Camera className="w-3.5 h-3.5" />
-              </div>
+              {isAdmin && (
+                <>
+                  <div className="absolute inset-0 rounded-full bg-slate-900/50 opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center transition-all text-white text-[10px] font-semibold">
+                    <Camera className="w-4 h-4 mb-0.5" />
+                    <span>Đổi ảnh</span>
+                  </div>
+                  <div className="absolute -bottom-1 -right-1 bg-blue-600 p-1.5 rounded-full text-white shadow border-2 border-white group-hover:scale-110 transition-transform">
+                    <Camera className="w-3.5 h-3.5" />
+                  </div>
+                </>
+              )}
             </div>
 
             <div className="flex-1">
@@ -147,7 +190,7 @@ export default function StudentDetailModal({ isOpen, onClose, student, onUpdateS
               <h2 className="text-xl font-extrabold text-slate-900 mt-0.5">{student.full_name}</h2>
               <p className="text-xs text-slate-500">Khóa học: <strong className="text-blue-700">{student.course_name}</strong></p>
 
-              {isEditing && (
+              {isEditing && isAdmin && (
                 <button
                   type="button"
                   onClick={() => setShowAvatarModal(true)}
@@ -213,18 +256,28 @@ export default function StudentDetailModal({ isOpen, onClose, student, onUpdateS
                 </div>
               </div>
 
-              <div className="pt-4 flex justify-end space-x-2">
-                <button
-                  type="button"
-                  onClick={() => setIsEditing(true)}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg flex items-center shadow transition-all"
-                >
-                  <Edit2 className="w-3.5 h-3.5 mr-1.5" /> Chỉnh Sửa Thông Tin
-                </button>
+              <div className="pt-4 flex justify-between items-center">
+                {!isAdmin ? (
+                  <span className="text-[11px] font-semibold text-slate-500 bg-slate-100 px-3 py-1.5 rounded-lg flex items-center gap-1.5 border border-slate-200">
+                    <Eye className="w-3.5 h-3.5 text-blue-600" /> Tài khoản Học viên (chỉ xem, không được chỉnh sửa)
+                  </span>
+                ) : (
+                  <div />
+                )}
+
+                {isAdmin && (
+                  <button
+                    type="button"
+                    onClick={() => setIsEditing(true)}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg flex items-center shadow transition-all"
+                  >
+                    <Edit2 className="w-3.5 h-3.5 mr-1.5" /> Chỉnh Sửa Thông Tin
+                  </button>
+                )}
               </div>
             </div>
           ) : (
-            /* CHẾ ĐỘ CHỈNH SỬA THÔNG TIN */
+            /* CHẾ ĐỘ CHỈNH SỬA THÔNG TIN (DÀNH CHO ADMIN) */
             <form onSubmit={handleSave} className="space-y-3">
               {/* Trường Đổi Avatar */}
               <div>
@@ -336,6 +389,66 @@ export default function StudentDetailModal({ isOpen, onClose, student, onUpdateS
                   placeholder="0909..."
                   className="w-full px-3 py-2 border rounded-lg text-xs outline-none focus:ring-1 focus:ring-blue-500"
                 />
+              </div>
+
+              {/* Mục Đổi Mật Khẩu Tương Tự Trang Account */}
+              <div className="pt-2 border-t border-slate-200 space-y-2">
+                <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-800">
+                  <input
+                    type="checkbox"
+                    checked={changePasswordChecked}
+                    onChange={(e) => setChangePasswordChecked(e.target.checked)}
+                    className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500 accent-blue-600 cursor-pointer"
+                  />
+                  <KeyRound className="w-4 h-4 text-blue-600" />
+                  Đổi mật khẩu tài khoản học viên
+                </label>
+
+                {changePasswordChecked && (
+                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2.5">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Mật khẩu mới</label>
+                      <div className="relative">
+                        <input
+                          type={showNewPassword ? 'text' : 'password'}
+                          value={newPassword}
+                          onChange={(e) => setNewPassword(e.target.value)}
+                          placeholder="Tối thiểu 6 ký tự..."
+                          className="w-full pl-8 pr-9 py-1.5 border border-slate-300 rounded-lg text-xs outline-none focus:ring-1 focus:ring-blue-500 bg-white font-medium"
+                        />
+                        <Lock className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-400" />
+                        <button
+                          type="button"
+                          onClick={() => setShowNewPassword(!showNewPassword)}
+                          className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600"
+                        >
+                          {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Xác nhận mật khẩu mới</label>
+                      <div className="relative">
+                        <input
+                          type={showConfirmPassword ? 'text' : 'password'}
+                          value={confirmPassword}
+                          onChange={(e) => setConfirmPassword(e.target.value)}
+                          placeholder="Nhập lại mật khẩu mới..."
+                          className="w-full pl-8 pr-9 py-1.5 border border-slate-300 rounded-lg text-xs outline-none focus:ring-1 focus:ring-blue-500 bg-white font-medium"
+                        />
+                        <Lock className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-400" />
+                        <button
+                          type="button"
+                          onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                          className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600"
+                        >
+                          {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="pt-3 flex justify-end space-x-2 border-t border-slate-100">
