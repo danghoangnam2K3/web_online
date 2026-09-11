@@ -79,10 +79,18 @@ export async function createStudentApi(studentData) {
 }
 
 export async function updateStudentApi(studentId, updateData) {
-  return apiFetch(`/students/${studentId}`, {
+  // Gọi thẳng fetch thay vì apiFetch để lấy toàn bộ response (success + message + data)
+  const res = await fetch(`${BASE_URL}/students/${studentId}`, {
     method: 'PUT',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(updateData)
   });
+  const json = await res.json();
+  if (!res.ok || !json.success) {
+    throw new Error(json.message || 'Cập nhật học viên thất bại');
+  }
+  return json;
 }
 
 export async function deleteStudentApi(studentId) {

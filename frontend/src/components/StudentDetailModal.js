@@ -130,15 +130,16 @@ export default function StudentDetailModal({ isOpen, onClose, student, onUpdateS
     }
 
     setLoading(true);
-    const res = await updateStudentApi(student.id, updateData);
-    if (res?.success) {
-      alert(res.message || 'Cập nhật thành công!');
+    try {
+      const res = await updateStudentApi(student.id, updateData);
+      alert('Cập nhật thành công!');
       setIsEditing(false);
       onUpdateStudent();
-    } else {
-      alert(res?.message || 'Cập nhật thất bại!');
+    } catch (err) {
+      alert(err.message || 'Cập nhật thất bại!');
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   return (
