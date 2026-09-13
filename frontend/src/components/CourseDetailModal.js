@@ -263,6 +263,78 @@ export default function CourseDetailModal({ isOpen, onClose, course: initialCour
     }
   };
 
+  // ── Helper: Lấy dữ liệu bài kiểm tra của chương ─────────────────────
+  const getChapterQuiz = (chapter) => {
+    if (!chapter) return null;
+    if (chapter.quiz && (chapter.quiz.questions?.length > 0 || chapter.quiz.title)) {
+      return chapter.quiz;
+    }
+    const quizLesson = (chapter.lessons || []).find(l => l.type === 'quiz');
+    if (!quizLesson) {
+      if (typeof window !== 'undefined' && course?.id) {
+        try {
+          const cached = localStorage.getItem(`driveedu_quiz_${course.id}_${chapter.id}`);
+          if (cached) return JSON.parse(cached);
+        } catch (e) {}
+      }
+      return null;
+    }
+    if (quizLesson.content_text) {
+      try {
+        const parsed = JSON.parse(quizLesson.content_text);
+        if (parsed && (parsed.questions?.length > 0 || parsed.title)) return parsed;
+      } catch (e) {}
+    }
+    return {
+      id: quizLesson.id,
+      title: quizLesson.title,
+      questions: quizLesson.quiz_questions || []
+    };
+  };
+
+  // ── Xóa Bài Kiểm Tra Chương ─────────────────────────────────────────
+  const handleDeleteQuiz = async (ch) => {
+    const quizItem = getChapterQuiz(ch);
+    const title = quizItem?.title || 'bài kiểm tra';
+    if (!window.confirm(`Bạn có chắc chắn muốn xóa bài kiểm tra "${title}" khỏi chương "${ch.title}" không?`)) return;
+
+    try {
+      if (typeof window !== 'undefined' && course?.id) {
+        try {
+          localStorage.removeItem(`driveedu_quiz_${course.id}_${ch.id}`);
+          localStorage.removeItem(`driveedu_quiz_chapter_${ch.id}`);
+        } catch (e) {}
+      }
+
+      const quizLesson = (ch.lessons || []).find(l => l.type === 'quiz');
+      if (quizLesson && quizLesson.id && !String(quizLesson.id).startsWith('quiz-')) {
+        try {
+          await deleteLessonApi(course.id, ch.id, quizLesson.id);
+        } catch (e) {}
+      }
+
+      setCourse(prev => ({
+        ...prev,
+        chapters: (prev.chapters || []).map(c => {
+          if (c.id === ch.id) {
+            return {
+              ...c,
+              quiz: null,
+              lessons: (c.lessons || []).filter(l => l.type !== 'quiz')
+            };
+          }
+          return c;
+        })
+      }));
+
+      try {
+        await reloadCurrentCourse();
+      } catch (e) {}
+    } catch (err) {
+      alert('Lỗi xóa bài kiểm tra: ' + err.message);
+    }
+  };
+
   // ── Bước 3: Lưu Điều Kiện (áp dụng toàn bộ) ─────────────────────────────────
   const handleSaveConditions = async (e) => {
     e.preventDefault();
@@ -679,140 +751,194 @@ export default function CourseDetailModal({ isOpen, onClose, course: initialCour
                 <div className="p-5">
                   {course.chapters && course.chapters.length > 0 ? (
                     <div className="space-y-4">
-                      {course.chapters.map((ch, idx) => (
-                        <div key={ch.id || idx} className="border border-slate-200 rounded-xl overflow-hidden">
-                          {/* Chapter header */}
-                          <div className="p-4 bg-gradient-to-r from-slate-50 to-blue-50/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200">
-                            <div className="flex items-center gap-3">
-                              <div className="w-7 h-7 rounded-lg bg-blue-600 text-white text-xs font-extrabold flex items-center justify-center flex-shrink-0">
-                                {idx + 1}
-                              </div>
-                              <div>
-                                <span className="font-bold text-slate-900 text-sm">{ch.title}</span>
-                                <div className="flex items-center gap-3 mt-0.5 text-[11px] text-slate-500">
-                                  <span className="flex items-center gap-1">
-                                    <Timer className="w-3 h-3" /> {ch.duration_minutes || 0} phút
-                                  </span>
-                                  <span className="flex items-center gap-1">
-                                    <BookOpen className="w-3 h-3" /> {ch.lessons?.length || 0} bài giảng
-                                  </span>
-                                  <span className="flex items-center gap-1 text-blue-600">
-                                    <Percent className="w-3 h-3" /> Hoàn thành: {ch.min_completion_pct || 80}%
-                                  </span>
+                      {course.chapters.map((ch, idx) => {
+                        const chapterQuiz = getChapterQuiz(ch);
+                        const regularLessons = (ch.lessons || []).filter(l => l.type !== 'quiz');
+                        const hasContent = regularLessons.length > 0 || !!chapterQuiz;
+
+                        return (
+                          <div key={ch.id || idx} className="border border-slate-200 rounded-xl overflow-hidden">
+                            {/* Chapter header */}
+                            <div className="p-4 bg-gradient-to-r from-slate-50 to-blue-50/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200">
+                              <div className="flex items-center gap-3">
+                                <div className="w-7 h-7 rounded-lg bg-blue-600 text-white text-xs font-extrabold flex items-center justify-center flex-shrink-0">
+                                  {idx + 1}
+                                </div>
+                                <div>
+                                  <span className="font-bold text-slate-900 text-sm">{ch.title}</span>
+                                  <div className="flex items-center gap-3 mt-0.5 text-[11px] text-slate-500">
+                                    <span className="flex items-center gap-1">
+                                      <Timer className="w-3 h-3" /> {ch.duration_minutes || 0} phút
+                                    </span>
+                                    <span className="flex items-center gap-1">
+                                      <BookOpen className="w-3 h-3" /> {regularLessons.length} bài giảng {chapterQuiz ? '+ 1 bài kiểm tra' : ''}
+                                    </span>
+                                    <span className="flex items-center gap-1 text-blue-600">
+                                      <Percent className="w-3 h-3" /> Hoàn thành: {ch.min_completion_pct || 80}%
+                                    </span>
+                                  </div>
                                 </div>
                               </div>
+
+                              {isAdmin && (
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    onClick={() => {
+                                      setSelectedChapterForLesson(ch);
+                                      setIsLessonModalOpen(true);
+                                    }}
+                                    className="px-3 py-1.5 bg-white border border-blue-300 text-blue-700 hover:bg-blue-50 text-xs font-bold rounded-lg flex items-center gap-1.5 shadow-sm whitespace-nowrap transition-colors"
+                                  >
+                                    <Plus className="w-3.5 h-3.5" /> Thêm Bài Giảng
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      setSelectedChapterForQuiz(chapterQuiz ? { ...ch, quiz: chapterQuiz } : ch);
+                                      setIsQuizModalOpen(true);
+                                    }}
+                                    className={`px-3 py-1.5 border text-xs font-bold rounded-lg flex items-center gap-1.5 shadow-sm whitespace-nowrap transition-colors ${
+                                      chapterQuiz
+                                        ? 'bg-purple-50 border-purple-300 text-purple-700 hover:bg-purple-100'
+                                        : 'bg-white border-purple-300 text-purple-700 hover:bg-purple-50'
+                                    }`}
+                                  >
+                                    <Award className="w-3.5 h-3.5" />
+                                    {chapterQuiz ? 'Sửa Kiểm Tra' : 'Tạo Kiểm Tra'}
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteChapter(ch)}
+                                    className="p-1.5 rounded-lg border border-red-200 text-red-400 hover:bg-red-500 hover:text-white hover:border-red-500 transition-all"
+                                    title="Xóa chương này"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              )}
                             </div>
 
-                            {isAdmin && (
-                              <div className="flex items-center gap-2">
-                                <button
-                                  onClick={() => {
-                                    setSelectedChapterForLesson(ch);
-                                    setIsLessonModalOpen(true);
-                                  }}
-                                  className="px-3 py-1.5 bg-white border border-blue-300 text-blue-700 hover:bg-blue-50 text-xs font-bold rounded-lg flex items-center gap-1.5 shadow-sm whitespace-nowrap transition-colors"
+                            {/* Danh sách bài giảng & bài kiểm tra */}
+                            <div className="divide-y divide-slate-100">
+                              {regularLessons.length > 0 && regularLessons.map((lesson, lIdx) => (
+                                <div
+                                  key={lesson.id || lIdx}
+                                  className="p-3.5 flex items-center justify-between hover:bg-slate-50/60 transition-colors"
                                 >
-                                  <Plus className="w-3.5 h-3.5" /> Thêm Bài Giảng
-                                </button>
-                                <button
-                                  onClick={() => {
-                                    setSelectedChapterForQuiz(ch);
-                                    setIsQuizModalOpen(true);
-                                  }}
-                                  className="px-3 py-1.5 bg-white border border-purple-300 text-purple-700 hover:bg-purple-50 text-xs font-bold rounded-lg flex items-center gap-1.5 shadow-sm whitespace-nowrap transition-colors"
-                                >
-                                  <Award className="w-3.5 h-3.5" />
-                                  {ch.quiz ? 'Sửa Kiểm Tra' : 'Tạo Kiểm Tra'}
-                                </button>
-                                <button
-                                  onClick={() => handleDeleteChapter(ch)}
-                                  className="p-1.5 rounded-lg border border-red-200 text-red-400 hover:bg-red-500 hover:text-white hover:border-red-500 transition-all"
-                                  title="Xóa chương này"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                              </div>
-                            )}
-                          </div>
+                                  <div className="flex items-center gap-3">
+                                    <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                                      lesson.type === 'video' ? 'bg-blue-100' : 'bg-amber-100'
+                                    }`}>
+                                      {lesson.type === 'video' && <Video className="w-3.5 h-3.5 text-blue-600" />}
+                                      {lesson.type === 'reading' && <ScrollText className="w-3.5 h-3.5 text-amber-600" />}
+                                    </div>
+                                    <div>
+                                      <span className="font-bold text-slate-800 text-xs block">{lesson.title}</span>
+                                      <span className="text-[11px] text-slate-400">
+                                        {lesson.duration_minutes || 0} phút
+                                        {lesson.type === 'video' && ` • Phải xem ${lesson.min_watch_pct || 80}%`}
+                                        {lesson.type === 'reading' && ' • Kéo xuống cuối trang'}
+                                      </span>
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase ${
+                                      lesson.type === 'video' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'
+                                    }`}>
+                                      {lesson.type === 'video' ? 'Video' : 'Đọc'}
+                                    </span>
+                                    {isAdmin && (
+                                      <button
+                                        onClick={() => handleDeleteLesson(ch, lesson)}
+                                        className="p-1.5 rounded-lg text-red-400 hover:bg-red-500 hover:text-white transition-all"
+                                        title="Xóa bài giảng"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              ))}
 
-                          {/* Lessons list */}
-                          <div className="divide-y divide-slate-100">
-                            {ch.lessons && ch.lessons.length > 0 ? (
-                              <>
-                                {ch.lessons.map((lesson, lIdx) => (
-                                  <div
-                                    key={lesson.id || lIdx}
-                                    className="p-3.5 flex items-center justify-between hover:bg-slate-50/60 transition-colors"
-                                  >
-                                    <div className="flex items-center gap-3">
-                                      <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                                        lesson.type === 'video' ? 'bg-blue-100' :
-                                        lesson.type === 'reading' ? 'bg-amber-100' : 'bg-purple-100'
-                                      }`}>
-                                        {lesson.type === 'video' && <Video className="w-3.5 h-3.5 text-blue-600" />}
-                                        {lesson.type === 'reading' && <ScrollText className="w-3.5 h-3.5 text-amber-600" />}
-                                        {lesson.type === 'quiz' && <HelpCircle className="w-3.5 h-3.5 text-purple-600" />}
-                                      </div>
-                                      <div>
-                                        <span className="font-bold text-slate-800 text-xs block">{lesson.title}</span>
-                                        <span className="text-[11px] text-slate-400">
-                                          {lesson.duration_minutes || 0} phút
-                                          {lesson.type === 'video' && ` • Phải xem ${lesson.min_watch_pct || 80}%`}
-                                          {lesson.type === 'reading' && ' • Kéo xuống cuối trang'}
+                              {/* BÀI KIỂM TRA THẬT CỦA CHƯƠNG DO ADMIN TẠO */}
+                              {chapterQuiz ? (
+                                <div className="p-3.5 bg-gradient-to-r from-purple-50 via-indigo-50/60 to-purple-50/80 border-t border-purple-200/80 flex items-center justify-between">
+                                  <div className="flex items-center gap-3">
+                                    <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-purple-600 to-indigo-600 text-white flex items-center justify-center flex-shrink-0 shadow-sm">
+                                      <Award className="w-4 h-4" />
+                                    </div>
+                                    <div>
+                                      <div className="flex items-center gap-2">
+                                        <span className="font-bold text-purple-950 text-xs block">
+                                          {chapterQuiz.title || 'Bài Kiểm Tra Chương'}
+                                        </span>
+                                        <span className="px-2 py-0.5 rounded text-[9px] font-extrabold bg-purple-600 text-white uppercase tracking-wider">
+                                          BÀI KIỂM TRA
                                         </span>
                                       </div>
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                      <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase ${
-                                        lesson.type === 'video' ? 'bg-blue-100 text-blue-700' :
-                                        lesson.type === 'reading' ? 'bg-amber-100 text-amber-700' :
-                                        'bg-purple-100 text-purple-700'
-                                      }`}>
-                                        {lesson.type === 'video' ? 'Video' : lesson.type === 'reading' ? 'Đọc' : 'Quiz'}
+                                      <span className="text-[11px] text-purple-700">
+                                        {(chapterQuiz.questions?.length || chapterQuiz.quiz_questions?.length || 1)} câu hỏi trắc nghiệm
+                                        {chapterQuiz.shuffle_answers && ' • Trộn đáp án'}
+                                        {conditions.require_quiz_pass && ' • Cần đạt để hoàn thành chương'}
                                       </span>
-                                      {isAdmin && (
+                                    </div>
+                                  </div>
+
+                                  <div className="flex items-center gap-2">
+                                    {isAdmin && (
+                                      <>
                                         <button
-                                          onClick={() => handleDeleteLesson(ch, lesson)}
+                                          onClick={() => {
+                                            setSelectedChapterForQuiz({ ...ch, quiz: chapterQuiz });
+                                            setIsQuizModalOpen(true);
+                                          }}
+                                          className="px-2.5 py-1 text-[11px] font-bold text-purple-700 hover:text-purple-900 bg-white hover:bg-purple-100/60 border border-purple-200 rounded-lg transition-colors flex items-center gap-1 shadow-sm"
+                                          title="Chỉnh sửa bài kiểm tra"
+                                        >
+                                          <Edit3 className="w-3 h-3" />
+                                          Sửa
+                                        </button>
+                                        <button
+                                          onClick={() => handleDeleteQuiz(ch)}
                                           className="p-1.5 rounded-lg text-red-400 hover:bg-red-500 hover:text-white transition-all"
-                                          title="Xóa bài giảng"
+                                          title="Xóa bài kiểm tra này"
                                         >
                                           <Trash2 className="w-3.5 h-3.5" />
                                         </button>
-                                      )}
-                                    </div>
+                                      </>
+                                    )}
                                   </div>
-                                ))}
-
-                                {/* Bài kiểm tra chương - badge cuối */}
-                                <div className="p-3.5 bg-purple-50/50 flex items-center justify-between">
-                                  <div className="flex items-center gap-3">
-                                    <div className="w-7 h-7 rounded-lg bg-purple-100 flex items-center justify-center flex-shrink-0">
-                                      <Award className="w-3.5 h-3.5 text-purple-600" />
-                                    </div>
-                                    <div>
-                                      <span className="font-bold text-purple-800 text-xs block">Bài Kiểm Tra Cuối Chương</span>
-                                      <span className="text-[11px] text-purple-400">
-                                        Tự động mở sau khi học viên hoàn thành tất cả bài giảng
-                                        {conditions.require_quiz_pass && ' • Cần đạt bài kiểm tra để hoàn thành chương'}
-                                      </span>
-                                    </div>
-                                  </div>
-                                  <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-purple-100 text-purple-700 uppercase">
-                                    Auto Quiz
-                                  </span>
                                 </div>
-                              </>
-                            ) : (
-                              <div className="p-5 text-center">
-                                <BookOpen className="w-8 h-8 text-slate-200 mx-auto mb-2" />
-                                <p className="text-xs text-slate-400 italic">
-                                  {isAdmin ? 'Chương này chưa có bài giảng. Nhấn "Thêm Bài Giảng" để tạo.' : 'Chương này chưa có bài giảng.'}
-                                </p>
-                              </div>
-                            )}
+                              ) : isAdmin ? (
+                                <div className="p-3 bg-slate-50/50 border-t border-dashed border-slate-200 flex items-center justify-between text-xs">
+                                  <span className="text-slate-400 text-[11px] flex items-center gap-1.5">
+                                    <HelpCircle className="w-3.5 h-3.5 text-slate-400" />
+                                    Chương này chưa có bài kiểm tra
+                                  </span>
+                                  <button
+                                    onClick={() => {
+                                      setSelectedChapterForQuiz(ch);
+                                      setIsQuizModalOpen(true);
+                                    }}
+                                    className="text-[11px] font-bold text-purple-600 hover:text-purple-700 flex items-center gap-1 hover:underline"
+                                  >
+                                    <Plus className="w-3 h-3" />
+                                    Tạo bài kiểm tra
+                                  </button>
+                                </div>
+                              ) : null}
+
+                              {/* Chưa có bài giảng lẫn bài kiểm tra */}
+                              {!hasContent && (
+                                <div className="p-5 text-center">
+                                  <BookOpen className="w-8 h-8 text-slate-200 mx-auto mb-2" />
+                                  <p className="text-xs text-slate-400 italic">
+                                    {isAdmin ? 'Chương này chưa có bài giảng. Nhấn "Thêm Bài Giảng" để tạo.' : 'Chương này chưa có bài giảng.'}
+                                  </p>
+                                </div>
+                              )}
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   ) : (
                     <div className="p-6 text-center border-2 border-dashed border-amber-200 rounded-xl bg-amber-50">
