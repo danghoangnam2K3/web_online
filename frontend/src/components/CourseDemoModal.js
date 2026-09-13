@@ -17,8 +17,53 @@ import {
   Video,
   ArrowLeft,
   ScrollText,
-  Award
+  Award,
+  ExternalLink
 } from 'lucide-react';
+
+// Chuyển đổi mọi định dạng link video (YouTube watch/short/youtu.be, Google Drive, MP4, Vimeo) thành embed hợp lệ
+function getVideoEmbed(rawUrl) {
+  if (!rawUrl || typeof rawUrl !== 'string') return null;
+  const url = rawUrl.trim();
+
+  // 1. Direct video file (.mp4, .webm, .ogg, .mov)
+  if (/\.(mp4|webm|ogg|mov)(\?.*)?$/i.test(url)) {
+    return { type: 'video', src: url };
+  }
+
+  // 2. YouTube (xử lý link watch?v=, youtu.be/, shorts/, embed/)
+  const ytMatch = url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=|shorts\/))([\w-]{11})/i);
+  if (ytMatch && ytMatch[1]) {
+    return {
+      type: 'iframe',
+      src: `https://www.youtube.com/embed/${ytMatch[1]}?rel=0`,
+      originalUrl: url
+    };
+  }
+
+  // 3. Google Drive
+  const driveMatch = url.match(/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/i);
+  if (driveMatch && driveMatch[1]) {
+    return {
+      type: 'iframe',
+      src: `https://drive.google.com/file/d/${driveMatch[1]}/preview`,
+      originalUrl: url
+    };
+  }
+
+  // 4. Vimeo
+  const vimeoMatch = url.match(/vimeo\.com\/(?:channels\/(?:\w+\/)?|groups\/([^\/]*)\/videos\/|album\/(\d+)\/video\/|)(\d+)/i);
+  if (vimeoMatch && vimeoMatch[3]) {
+    return {
+      type: 'iframe',
+      src: `https://player.vimeo.com/video/${vimeoMatch[3]}`,
+      originalUrl: url
+    };
+  }
+
+  // 5. Generic URL
+  return { type: 'iframe', src: url, originalUrl: url };
+}
 
 export default function CourseDemoModal({ isOpen, onClose, course }) {
   const [expandedChapters, setExpandedChapters] = useState({});
@@ -302,30 +347,63 @@ export default function CourseDemoModal({ isOpen, onClose, course }) {
                 <div className="flex-1 overflow-y-auto" onScroll={activeLesson.lesson.type === 'reading' ? handleReadingScroll : undefined}>
 
                   {/* VIDEO */}
-                  {activeLesson.lesson.type === 'video' && (
-                    <div className="p-5">
-                      <div className="aspect-video bg-slate-900 rounded-xl overflow-hidden shadow-lg mb-4">
-                        {activeLesson.lesson.content_url ? (
-                          <iframe
-                            src={activeLesson.lesson.content_url}
-                            className="w-full h-full"
-                            allowFullScreen
-                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                          />
-                        ) : (
-                          <div className="w-full h-full flex flex-col items-center justify-center text-white/60">
-                            <Play className="w-16 h-16 mb-3 opacity-40" />
-                            <p className="text-sm">Chưa có URL video</p>
+                  {activeLesson.lesson.type === 'video' && (() => {
+                    const embed = getVideoEmbed(activeLesson.lesson.content_url);
+                    return (
+                      <div className="p-5">
+                        <div className="aspect-video bg-slate-950 rounded-xl overflow-hidden shadow-lg mb-3 relative border border-slate-800">
+                          {embed ? (
+                            embed.type === 'video' ? (
+                              <video
+                                src={embed.src}
+                                controls
+                                autoPlay
+                                className="w-full h-full object-contain"
+                              >
+                                Trình duyệt không hỗ trợ phát video này.
+                              </video>
+                            ) : (
+                              <iframe
+                                src={embed.src}
+                                title={activeLesson.lesson.title}
+                                className="w-full h-full border-0"
+                                allowFullScreen
+                                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                              />
+                            )
+                          ) : (
+                            <div className="w-full h-full flex flex-col items-center justify-center text-white/60">
+                              <Play className="w-16 h-16 mb-3 opacity-40" />
+                              <p className="text-sm">Chưa có URL video hoặc đường dẫn không hợp lệ</p>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Nút mở ngoài phòng trường hợp YouTube chặn embed hoặc user muốn xem trực tiếp */}
+                        {activeLesson.lesson.content_url && (
+                          <div className="mb-4 flex items-center justify-between text-xs px-3.5 py-2 bg-slate-100 border border-slate-200 rounded-xl text-slate-600">
+                            <span className="truncate max-w-sm font-mono text-[11px] text-slate-500">
+                              {activeLesson.lesson.content_url}
+                            </span>
+                            <a
+                              href={activeLesson.lesson.content_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="ml-2 font-bold text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1 shrink-0"
+                            >
+                              <span>Xem trên YouTube / Web</span>
+                              <ExternalLink className="w-3.5 h-3.5" />
+                            </a>
                           </div>
                         )}
-                      </div>
-                      <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-700 flex items-center gap-2">
-                        <Clock className="w-4 h-4 flex-shrink-0" />
-                        <span>
-                          Yêu cầu xem ít nhất <strong>{activeLesson.lesson.min_watch_pct || 80}%</strong> thời lượng video để hoàn thành bài này.
-                          Thời lượng: <strong>{activeLesson.lesson.duration_minutes || 0} phút</strong>
-                        </span>
-                      </div>
+
+                        <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-700 flex items-center gap-2">
+                          <Clock className="w-4 h-4 flex-shrink-0" />
+                          <span>
+                            Yêu cầu xem ít nhất <strong>{activeLesson.lesson.min_watch_pct || 80}%</strong> thời lượng video để hoàn thành bài này.
+                            Thời lượng: <strong>{activeLesson.lesson.duration_minutes || 0} phút</strong>
+                          </span>
+                        </div>
                       <button
                         onClick={() => markLessonComplete(activeLesson.chapterIdx, activeLesson.lessonIdx)}
                         disabled={isLessonCompleted(activeLesson.chapterIdx, activeLesson.lessonIdx)}
@@ -337,7 +415,8 @@ export default function CourseDemoModal({ isOpen, onClose, course }) {
                           : 'Đánh Dấu Hoàn Thành (Demo)'}
                       </button>
                     </div>
-                  )}
+                  );
+                })()}
 
                   {/* READING */}
                   {activeLesson.lesson.type === 'reading' && (

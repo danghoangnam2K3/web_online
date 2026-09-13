@@ -14,6 +14,22 @@ export default function CreateLessonModal({ isOpen, onClose, onCreateLesson, cha
 
   if (!isOpen) return null;
 
+  const normalizeVideoUrl = (rawUrl) => {
+    if (!rawUrl) return '';
+    const url = rawUrl.trim();
+    // Tự động chuyển link YouTube bất kỳ sang embed URL
+    const ytMatch = url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=|shorts\/))([\w-]{11})/i);
+    if (ytMatch && ytMatch[1]) {
+      return `https://www.youtube.com/embed/${ytMatch[1]}`;
+    }
+    // Google Drive
+    const driveMatch = url.match(/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/i);
+    if (driveMatch && driveMatch[1]) {
+      return `https://drive.google.com/file/d/${driveMatch[1]}/preview`;
+    }
+    return url;
+  };
+
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!lessonData.title.trim()) {
@@ -24,7 +40,10 @@ export default function CreateLessonModal({ isOpen, onClose, onCreateLesson, cha
       alert('Vui lòng nhập URL video!');
       return;
     }
-    onCreateLesson(lessonData);
+    onCreateLesson({
+      ...lessonData,
+      content_url: lessonData.type === 'video' ? normalizeVideoUrl(lessonData.content_url) : ''
+    });
     // Reset form
     setLessonData({
       title: '',
@@ -156,13 +175,13 @@ export default function CreateLessonModal({ isOpen, onClose, onCreateLesson, cha
               <input
                 type="url"
                 required={lessonData.type === 'video'}
-                placeholder="https://www.youtube.com/embed/..."
+                placeholder="Dán link YouTube (youtube.com/watch?v=... hoặc youtu.be/...) hoặc link MP4..."
                 value={lessonData.content_url}
                 onChange={e => setLessonData({ ...lessonData, content_url: e.target.value })}
                 className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm focus:ring-2 focus:ring-blue-600 outline-none"
               />
               <p className="text-[11px] text-slate-400 mt-1">
-                Hỗ trợ YouTube Embed URL (youtube.com/embed/...) hoặc URL MP4 trực tiếp
+                💡 Hệ thống tự động nhận diện link YouTube thường (watch, share, shorts), Google Drive hoặc file video MP4.
               </p>
             </div>
           )}
