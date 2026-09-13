@@ -200,36 +200,40 @@ export default function StudentPortal({ onSwitchToAdmin }) {
 
   // 2. LỌC KHÓA HỌC: CHỈ CHỨA KHÓA HỌC MÀ HỌC VIÊN ĐƯỢC ADMIN ÉP VÀO KHÓA
   const studentCourses = allCourses.filter(course => {
-    if (!user) return false;
+    if (!user || !course) return false;
 
     const studentId = user.id || studentProfile?.id;
     const studentUsername = user.username || studentProfile?.username;
     const studentEmail = user.email || studentProfile?.email;
-    const assignedCourseName = user.course_name || studentProfile?.course_name;
+    const assignedCourseName = String(user.course_name || studentProfile?.course_name || '').trim();
 
     // 1. Kiểm tra trong mảng enrolled_student_ids của khóa học
-    const inEnrolledIds = (course.enrolled_student_ids || []).some(id =>
-      id === studentId || id === studentUsername || id === studentEmail
+    const inEnrolledIds = Array.isArray(course.enrolled_student_ids) && course.enrolled_student_ids.some(id =>
+      id && (id === studentId || id === studentUsername || id === studentEmail)
     );
 
     // 2. Kiểm tra trong LocalStorage nếu admin vừa ép vào khóa
     let inLocalEnroll = false;
-    try {
-      const localKey = `driveedu_enrolled_${course.id}`;
-      const localList = JSON.parse(localStorage.getItem(localKey) || '[]');
-      inLocalEnroll = localList.some(id => id === studentId || id === studentUsername);
-    } catch (e) {}
+    if (typeof window !== 'undefined') {
+      try {
+        const localKey = `driveedu_enrolled_${course.id}`;
+        const localList = JSON.parse(localStorage.getItem(localKey) || '[]');
+        inLocalEnroll = Array.isArray(localList) && localList.some(id => id === studentId || id === studentUsername);
+      } catch (e) {}
+    }
 
     // 3. Kiểm tra course_name được admin gán cho học viên
-    const matchCourseName = assignedCourseName &&
-      assignedCourseName !== 'Chưa xếp khóa' && (
-        course.name.toLowerCase().includes(assignedCourseName.toLowerCase()) ||
-        assignedCourseName.toLowerCase().includes(course.name.toLowerCase()) ||
-        (course.code && assignedCourseName.toLowerCase().includes(course.code.toLowerCase()))
-      );
+    const cName = String(course.name || '').toLowerCase();
+    const cCode = String(course.code || '').toLowerCase();
+    const aName = assignedCourseName.toLowerCase();
+
+    const matchCourseName = aName && aName !== 'chưa xếp khóa' && (
+      cName.includes(aName) || aName.includes(cName) || (cCode && aName.includes(cCode))
+    );
 
     return inEnrolledIds || inLocalEnroll || matchCourseName;
   });
+
 
   // 3. Khôi phục tiến độ học tập từ LocalStorage khi vào khóa học
   useEffect(() => {
@@ -607,9 +611,10 @@ export default function StudentPortal({ onSwitchToAdmin }) {
               title="Xem thông tin tài khoản"
             >
               <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white text-sm font-bold shadow ring-2 ring-blue-500/20">
-                {(user?.full_name || 'H')[0].toUpperCase()}
+                {((user?.full_name || 'Học Viên')[0] || 'H').toUpperCase()}
               </div>
               <div className="hidden md:block text-left">
+
                 <p className="text-xs font-bold text-slate-800 leading-tight">
                   {user?.full_name || 'Học Viên'}
                 </p>
@@ -1296,8 +1301,9 @@ export default function StudentPortal({ onSwitchToAdmin }) {
             {/* Header thông tin học viên */}
             <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 shadow-sm flex flex-col sm:flex-row items-center sm:items-start gap-6">
               <div className="w-24 h-24 rounded-3xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white text-3xl font-black shadow-xl shadow-blue-500/20 ring-4 ring-white flex-shrink-0">
-                {(studentProfile?.full_name || user?.full_name || 'H')[0].toUpperCase()}
+                {((studentProfile?.full_name || user?.full_name || 'Học Viên')[0] || 'H').toUpperCase()}
               </div>
+
 
               <div className="flex-1 text-center sm:text-left space-y-2">
                 <div className="flex items-center justify-center sm:justify-start gap-2.5 flex-wrap">
@@ -1349,7 +1355,7 @@ export default function StudentPortal({ onSwitchToAdmin }) {
                   <label className="block text-xs font-bold text-slate-700 mb-1.5">Họ và tên</label>
                   <input
                     type="text"
-                    value={profileForm.full_name}
+                    value={profileForm.full_name || ''}
                     onChange={e => setProfileForm(p => ({ ...p, full_name: e.target.value }))}
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
@@ -1359,7 +1365,7 @@ export default function StudentPortal({ onSwitchToAdmin }) {
                   <label className="block text-xs font-bold text-slate-700 mb-1.5">Số CCCD / CMND</label>
                   <input
                     type="text"
-                    value={profileForm.cccd}
+                    value={profileForm.cccd || ''}
                     onChange={e => setProfileForm(p => ({ ...p, cccd: e.target.value }))}
                     placeholder="001099xxxxxx"
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -1370,7 +1376,7 @@ export default function StudentPortal({ onSwitchToAdmin }) {
                   <label className="block text-xs font-bold text-slate-700 mb-1.5">Email</label>
                   <input
                     type="email"
-                    value={profileForm.email}
+                    value={profileForm.email || ''}
                     disabled
                     className="w-full bg-slate-100 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium text-slate-500 cursor-not-allowed"
                   />
@@ -1380,7 +1386,7 @@ export default function StudentPortal({ onSwitchToAdmin }) {
                   <label className="block text-xs font-bold text-slate-700 mb-1.5">Số điện thoại</label>
                   <input
                     type="text"
-                    value={profileForm.phone}
+                    value={profileForm.phone || ''}
                     onChange={e => setProfileForm(p => ({ ...p, phone: e.target.value }))}
                     placeholder="0912345678"
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -1391,7 +1397,7 @@ export default function StudentPortal({ onSwitchToAdmin }) {
                   <label className="block text-xs font-bold text-slate-700 mb-1.5">Ngày sinh</label>
                   <input
                     type="date"
-                    value={profileForm.dob ? profileForm.dob.split('T')[0] : ''}
+                    value={profileForm.dob ? String(profileForm.dob).split('T')[0] : ''}
                     onChange={e => setProfileForm(p => ({ ...p, dob: e.target.value }))}
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />

@@ -5,11 +5,12 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '../lib/AuthContext';
 import { LayoutDashboard, BookOpen, Users, BarChart3, ShieldCheck, Bell, User, LogOut, Settings, ChevronDown } from 'lucide-react';
 
-export default function Header({ activeTab, setActiveTab }) {
+export default function Header({ activeTab, setActiveTab, onSwitchToStudentView }) {
   const router = useRouter();
   const { user, logout } = useAuth();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef(null);
+
 
   // Đóng dropdown khi click ngoài
   useEffect(() => {
@@ -104,10 +105,11 @@ export default function Header({ activeTab, setActiveTab }) {
                 className="flex items-center gap-2.5 hover:bg-slate-50 rounded-xl px-2 py-1.5 transition-colors"
               >
                 <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-sm font-bold shadow ring-2 ring-blue-500/20">
-                  {(user?.full_name || 'A')[0].toUpperCase()}
+                  {((user?.full_name || 'Admin')[0] || 'A').toUpperCase()}
                 </div>
                 <div className="hidden md:block text-left">
                   <p className="text-xs font-bold text-slate-800">{user?.full_name || 'Quản Trị Viên'}</p>
+
                   <p className="text-[10px] font-medium text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded inline-block">
                     {user?.role === 'student' ? 'Học Viên' : 'Admin System'}
                   </p>
