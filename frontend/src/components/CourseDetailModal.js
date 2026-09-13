@@ -33,7 +33,8 @@ import {
   Unlock,
   Timer,
   GraduationCap,
-  RotateCcw
+  RotateCcw,
+  Trash2
 } from 'lucide-react';
 import {
   createChapterApi,
@@ -41,7 +42,9 @@ import {
   updateChapterRulesApi,
   enrollStudentsApi,
   fetchStudents,
-  updateCourseApi
+  updateCourseApi,
+  deleteChapterApi,
+  deleteLessonApi
 } from '../lib/api';
 import CreateLessonModal from './CreateLessonModal';
 import { useAuth } from '../lib/AuthContext';
@@ -205,6 +208,35 @@ export default function CourseDetailModal({ isOpen, onClose, course, onUpdateCou
       alert('Lỗi: ' + err.message);
     } finally {
       setEnrolling(false);
+    }
+  };
+
+  // ── Xóa Chương ──────────────────────────────────────────────────
+  const handleDeleteChapter = async (ch) => {
+    const lessonCount = ch.lessons?.length || 0;
+    const confirmed = window.confirm(
+      `⚠️ Xóa chương "${ch.title}"?\n\nSẽ xóa TOÀN BỘ ${lessonCount} bài giảng bên trong!\nKhông thể khôi phục!`
+    );
+    if (!confirmed) return;
+    try {
+      await deleteChapterApi(course.id, ch.id);
+      onUpdateCourse();
+    } catch (err) {
+      alert('Lỗi xóa chương: ' + err.message);
+    }
+  };
+
+  // ── Xóa Bài Giảng ────────────────────────────────────────────
+  const handleDeleteLesson = async (ch, lesson) => {
+    const confirmed = window.confirm(
+      `Xóa bài giảng "${lesson.title}"?\nKhông thể khôi phục!`
+    );
+    if (!confirmed) return;
+    try {
+      await deleteLessonApi(course.id, ch.id, lesson.id);
+      onUpdateCourse();
+    } catch (err) {
+      alert('Lỗi xóa bài giảng: ' + err.message);
     }
   };
 
@@ -560,15 +592,24 @@ export default function CourseDetailModal({ isOpen, onClose, course, onUpdateCou
                             </div>
 
                             {isAdmin && (
-                              <button
-                                onClick={() => {
-                                  setSelectedChapterForLesson(ch);
-                                  setIsLessonModalOpen(true);
-                                }}
-                                className="px-3 py-1.5 bg-white border border-blue-300 text-blue-700 hover:bg-blue-50 text-xs font-bold rounded-lg flex items-center gap-1.5 shadow-sm whitespace-nowrap transition-colors"
-                              >
-                                <Plus className="w-3.5 h-3.5" /> Thêm Bài Giảng
-                              </button>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => {
+                                    setSelectedChapterForLesson(ch);
+                                    setIsLessonModalOpen(true);
+                                  }}
+                                  className="px-3 py-1.5 bg-white border border-blue-300 text-blue-700 hover:bg-blue-50 text-xs font-bold rounded-lg flex items-center gap-1.5 shadow-sm whitespace-nowrap transition-colors"
+                                >
+                                  <Plus className="w-3.5 h-3.5" /> Thêm Bài Giảng
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteChapter(ch)}
+                                  className="p-1.5 rounded-lg border border-red-200 text-red-400 hover:bg-red-500 hover:text-white hover:border-red-500 transition-all"
+                                  title="Xóa chương này"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
                             )}
                           </div>
 
@@ -607,6 +648,15 @@ export default function CourseDetailModal({ isOpen, onClose, course, onUpdateCou
                                       }`}>
                                         {lesson.type === 'video' ? 'Video' : lesson.type === 'reading' ? 'Đọc' : 'Quiz'}
                                       </span>
+                                      {isAdmin && (
+                                        <button
+                                          onClick={() => handleDeleteLesson(ch, lesson)}
+                                          className="p-1.5 rounded-lg text-red-400 hover:bg-red-500 hover:text-white transition-all"
+                                          title="Xóa bài giảng"
+                                        >
+                                          <Trash2 className="w-3.5 h-3.5" />
+                                        </button>
+                                      )}
                                     </div>
                                   </div>
                                 ))}

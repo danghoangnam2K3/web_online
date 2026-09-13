@@ -1,9 +1,9 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { fetchCourses, createCourseApi } from '../lib/api';
+import { fetchCourses, createCourseApi, deleteCourseApi } from '../lib/api';
 import { useAuth } from '../lib/AuthContext';
-import { PlusCircle, Search, Filter, BookOpen, Users, Clock, Edit3, Layers, Eye } from 'lucide-react';
+import { PlusCircle, Search, Filter, BookOpen, Users, Edit3, Layers, Eye, Trash2 } from 'lucide-react';
 import CreateCourseModal from './CreateCourseModal';
 import CourseDetailModal from './CourseDetailModal';
 import CourseDemoModal from './CourseDemoModal';
@@ -68,6 +68,19 @@ export default function CoursesTab({ initialSelectedCourseId }) {
   const handleOpenDemo = (course) => {
     setDemoCourse(course);
     setIsDemoModalOpen(true);
+  };
+
+  const handleDeleteCourse = async (course) => {
+    const confirmed = window.confirm(
+      `⚠️ Bạn có chắc chắn muốn XÓA khóa học "${course.name}"?\n\nHành động này sẽ xóa TOÀN BỘ:\n• ${course.chapters?.length || 0} chương\n• Tất cả bài giảng\n• Danh sách học viên ghi danh\n\nKhông thể khôi phục sau khi xóa!`
+    );
+    if (!confirmed) return;
+    try {
+      await deleteCourseApi(course.id);
+      loadCourses();
+    } catch (err) {
+      alert('Lỗi xóa khóa học: ' + err.message);
+    }
   };
 
   return (
@@ -216,7 +229,7 @@ export default function CoursesTab({ initialSelectedCourseId }) {
                     </div>
                   </div>
 
-                  {/* Nút Đề Mô + Chỉnh Sửa */}
+                  {/* Nút Đề Mô + Chỉnh Sửa + Xóa */}
                   <div className="flex gap-2 pt-1">
                     {/* Nút Đề Mô */}
                     <button
@@ -237,6 +250,17 @@ export default function CoursesTab({ initialSelectedCourseId }) {
                       <Edit3 className="w-3.5 h-3.5 group-hover/btn:scale-110 transition-transform" />
                       Chỉnh Sửa
                     </button>
+
+                    {/* Nút Xóa (chỉ Admin) */}
+                    {isAdmin && (
+                      <button
+                        onClick={() => handleDeleteCourse(course)}
+                        className="py-2.5 px-3 rounded-xl border border-red-300 text-red-500 font-bold text-xs hover:bg-red-500 hover:text-white hover:border-red-500 transition-all flex items-center justify-center shadow-sm group/btn"
+                        title="Xóa khóa học"
+                      >
+                        <Trash2 className="w-3.5 h-3.5 group-hover/btn:scale-110 transition-transform" />
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>

@@ -303,3 +303,124 @@ exports.enrollStudents = async (req, res) => {
     return res.status(500).json({ success: false, message: err.message });
   }
 };
+
+// ─── Xóa bài giảng ────────────────────────────────────────────────────────────
+exports.deleteLesson = async (req, res) => {
+  try {
+    checkSupabase();
+    const { lessonId } = req.params;
+
+    const { error } = await supabase
+      .from('lessons')
+      .delete()
+      .eq('id', lessonId);
+
+    if (error) throw new Error(error.message);
+
+    return res.json({ success: true, message: 'Đã xóa bài giảng thành công!' });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ─── Xóa chương (và toàn bộ bài giảng bên trong) ─────────────────────────────
+exports.deleteChapter = async (req, res) => {
+  try {
+    checkSupabase();
+    const { chapterId } = req.params;
+
+    // Xóa tất cả bài giảng trong chương trước
+    const { error: lessonsErr } = await supabase
+      .from('lessons')
+      .delete()
+      .eq('chapter_id', chapterId);
+
+    if (lessonsErr) throw new Error(lessonsErr.message);
+
+    // Xóa chương
+    const { error: chapterErr } = await supabase
+      .from('chapters')
+      .delete()
+      .eq('id', chapterId);
+
+    if (chapterErr) throw new Error(chapterErr.message);
+
+    return res.json({ success: true, message: 'Đã xóa chương và toàn bộ bài giảng bên trong!' });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ─── Xóa khóa học (cascade: enrollments → lessons → chapters → course) ────────
+exports.deleteCourse = async (req, res) => {
+  try {
+    checkSupabase();
+    const { id } = req.params;
+
+    // 1. Lấy tất cả chapter IDs của khóa
+    const { data: chapters } = await supabase
+      .from('chapters')
+      .select('id')
+      .eq('course_id', id);
+
+    const chapterIds = (chapters || []).map(c => c.id);
+
+    // 2. Xóa tất cả lessons thuộc các chapters đó
+    if (chapterIds.length > 0) {
+      const { error: lessonsErr } = await supabase
+        .from('lessons')
+        .delete()
+        .in('chapter_id', chapterIds);
+      if (lessonsErr) throw new Error(lessonsErr.message);
+    }
+
+    // 3. Xóa tất cả chapters
+    if (chapterIds.length > 0) {
+      const { error: chaptersErr } = await supabase
+        .from('chapters')
+        .delete()
+        .eq('course_id', id);
+      if (chaptersErr) throw new Error(chaptersErr.message);
+    }
+
+    // 4. Xóa enrollments
+    const { error: enrollErr } = await supabase
+      .from('enrollments')
+      .delete()
+      .eq('course_id', id);
+    if (enrollErr) throw new Error(enrollErr.message);
+
+    // 5. Xóa khóa học
+    const { error: courseErr } = await supabase
+      .from('courses')
+      .delete()
+      .eq('id', id);
+    if (courseErr) throw new Error(courseErr.message);
+
+    return res.json({ success: true, message: 'Đã xóa khóa học và toàn bộ dữ liệu liên quan!' });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ─── Cập nhật thông tin khóa học ──────────────────────────────────────────────
+exports.updateCourse = async (req, res) => {
+  try {
+    checkSupabase();
+    const { id } = req.params;
+    const { name, description, teacher_name, license_tier, thumbnail_url } = req.body;
+
+    const { data, error } = await supabase
+      .from('courses')
+      .update({ name, description, teacher_name, license_tier, thumbnail_url })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) throw new Error(error.message);
+
+    return res.json({ success: true, message: 'Đã cập nhật thông tin khóa học!', data });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};

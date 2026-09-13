@@ -41,6 +41,24 @@ export async function updateCourseApi(courseId, courseData) {
   });
 }
 
+export async function deleteCourseApi(courseId) {
+  return apiFetch(`/courses/${courseId}`, {
+    method: 'DELETE'
+  });
+}
+
+export async function deleteChapterApi(courseId, chapterId) {
+  return apiFetch(`/courses/${courseId}/chapters/${chapterId}`, {
+    method: 'DELETE'
+  });
+}
+
+export async function deleteLessonApi(courseId, chapterId, lessonId) {
+  return apiFetch(`/courses/${courseId}/chapters/${chapterId}/lessons/${lessonId}`, {
+    method: 'DELETE'
+  });
+}
+
 export async function createChapterApi(courseId, chapterData) {
   // chapterData: { title, min_completion_pct, duration_minutes }
   return apiFetch(`/courses/${courseId}/chapters`, {
