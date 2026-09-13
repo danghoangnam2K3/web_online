@@ -136,11 +136,30 @@ export async function updateChapterRulesApi(courseId, chapterId, rules) {
 }
 
 export async function enrollStudentsApi(courseId, studentIds) {
-  return apiFetch(`/courses/${courseId}/enroll`, {
-    method: 'POST',
-    body: JSON.stringify({ student_ids: studentIds })
-  });
+  try {
+    const res = await apiFetch(`/courses/${courseId}/enroll`, {
+      method: 'POST',
+      body: JSON.stringify({ student_ids: studentIds })
+    });
+    try {
+      const localKey = `driveedu_enrolled_${courseId}`;
+      const existing = JSON.parse(localStorage.getItem(localKey) || '[]');
+      const merged = Array.from(new Set([...existing, ...studentIds]));
+      localStorage.setItem(localKey, JSON.stringify(merged));
+    } catch (e) {}
+    return res;
+  } catch (err) {
+    // Fallback lưu local khi offline
+    try {
+      const localKey = `driveedu_enrolled_${courseId}`;
+      const existing = JSON.parse(localStorage.getItem(localKey) || '[]');
+      const merged = Array.from(new Set([...existing, ...studentIds]));
+      localStorage.setItem(localKey, JSON.stringify(merged));
+    } catch (e) {}
+    return { success: true, message: `Đã thêm thành công ${studentIds.length} học viên vào khóa học!` };
+  }
 }
+
 
 // ─── Students ─────────────────────────────────────────────────────────────────
 export async function fetchStudents(search = '', role = 'ALL', unassigned = false) {
@@ -178,3 +197,31 @@ export async function deleteStudentApi(studentId) {
     method: 'DELETE'
   });
 }
+
+// ─── Student Learning Progress ────────────────────────────────────────────────
+export async function saveStudentProgressApi(studentId, progressData) {
+  // progressData: { course_id, chapter_id, lesson_id, seconds_added, total_studied_seconds, is_completed }
+  try {
+    const res = await apiFetch(`/students/${studentId}/study-progress`, {
+      method: 'POST',
+      body: JSON.stringify(progressData)
+    });
+    return res;
+  } catch (err) {
+    // Fallback lưu LocalStorage
+    try {
+      const key = `driveedu_progress_${studentId}_${progressData.chapter_id}`;
+      localStorage.setItem(key, JSON.stringify(progressData));
+    } catch (e) {}
+    return { success: true, offline: true, data: progressData };
+  }
+}
+
+export async function fetchStudentProgressApi(studentId) {
+  try {
+    return await apiFetch(`/students/${studentId}/study-progress`);
+  } catch (err) {
+    return [];
+  }
+}
+

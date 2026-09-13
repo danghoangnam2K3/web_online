@@ -15,7 +15,12 @@ router.post('/', studentController.createStudent);
 // Giám sát & chỉnh sửa thông tin học viên
 router.put('/:id', studentController.updateStudent);
 
+// Lưu & lấy tiến độ học tập của học viên
+router.post('/:id/study-progress', studentController.saveStudyProgress);
+router.get('/:id/study-progress', studentController.getStudyProgress);
+
 // Xóa học viên
 router.delete('/:id', studentController.deleteStudent);
 
 module.exports = router;
+

@@ -8,6 +8,7 @@ import OverviewTab from '../components/OverviewTab';
 import CoursesTab from '../components/CoursesTab';
 import StudentsTab from '../components/StudentsTab';
 import ReportsTab from '../components/ReportsTab';
+import StudentPortal from '../components/StudentPortal';
 
 const VALID_TABS = ['overview', 'courses', 'students', 'reports'];
 
@@ -17,12 +18,23 @@ function getTabFromHash() {
   return VALID_TABS.includes(hash) ? hash : 'overview';
 }
 
-export default function AdminDashboard() {
+export default function DashboardPage() {
   const router = useRouter();
   const { user, loading } = useAuth();
+  
+  // Chế độ xem: nếu user.role === 'student' thì mặc định 'student', ngược lại 'admin'
+  const isStudent = user?.role === 'student';
+  const [viewMode, setViewMode] = useState(isStudent ? 'student' : 'admin');
+
   // Khởi tạo tab từ URL hash (giữ nguyên tab sau F5)
   const [activeTab, setActiveTab] = useState('overview');
   const [selectedCourseIdFromOverview, setSelectedCourseIdFromOverview] = useState(null);
+
+  useEffect(() => {
+    if (user?.role === 'student') {
+      setViewMode('student');
+    }
+  }, [user]);
 
   // Đọc hash khi component mount (sau khi window available)
   useEffect(() => {
@@ -67,14 +79,28 @@ export default function AdminDashboard() {
     );
   }
 
+  // NẾU LÀ HỌC VIÊN HOẶC ĐANG Ở CHẾ ĐỘ XEM HỌC VIÊN
+  if (viewMode === 'student') {
+    return (
+      <StudentPortal
+        onSwitchToAdmin={user?.role === 'admin' ? () => setViewMode('admin') : undefined}
+      />
+    );
+  }
+
   const handleSelectCourseFromOverview = (courseId) => {
     setSelectedCourseIdFromOverview(courseId);
     handleSetActiveTab('courses');
   };
 
+  // NẾU LÀ QUẢN TRỊ VIÊN
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
-      <Header activeTab={activeTab} setActiveTab={handleSetActiveTab} />
+      <Header
+        activeTab={activeTab}
+        setActiveTab={handleSetActiveTab}
+        onSwitchToStudentView={() => setViewMode('student')}
+      />
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {activeTab === 'overview' && (
@@ -103,3 +129,4 @@ export default function AdminDashboard() {
     </div>
   );
 }
+
