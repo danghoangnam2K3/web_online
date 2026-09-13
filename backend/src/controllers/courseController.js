@@ -453,11 +453,46 @@ exports.enrollStudents = async (req, res) => {
 
     if (enrollErr) throw new Error(enrollErr.message);
 
-    // Cập nhật course_name trong bảng students
+    // Cập nhật course_name và reset progress về 0 trong bảng students
     await supabase
       .from('students')
-      .update({ course_name: course.name })
+      .update({ course_name: course.name, progress: 0 })
       .in('id', student_ids);
+
+    // Xóa toàn bộ tiến độ học cũ và kết quả kiểm tra cũ của các học viên này trong khóa để học viên phải học lại từ đầu
+    try {
+      const { data: chapters } = await supabase
+        .from('chapters')
+        .select('id')
+        .eq('course_id', id);
+
+      const chapterIds = (chapters || []).map(c => c.id);
+      if (chapterIds.length > 0) {
+        const { data: lessons } = await supabase
+          .from('lessons')
+          .select('id')
+          .in('chapter_id', chapterIds);
+
+        const lessonIds = (lessons || []).map(l => l.id);
+        if (lessonIds.length > 0) {
+          await supabase
+            .from('study_progress')
+            .delete()
+            .in('student_id', student_ids)
+            .in('lesson_id', lessonIds);
+
+          try {
+            await supabase
+              .from('quiz_attempts')
+              .delete()
+              .in('student_id', student_ids)
+              .in('lesson_id', lessonIds);
+          } catch (qaErr) {}
+        }
+      }
+    } catch (wipeErr) {
+      console.warn('Lỗi dọn dẹp tiến độ cũ khi enroll học viên:', wipeErr.message);
+    }
 
     return res.json({
       success: true,
@@ -468,50 +503,101 @@ exports.enrollStudents = async (req, res) => {
   }
 };
 
-// ─── Xóa học viên khỏi khóa học ─────────────────────────────────────────────
+// ─── Xóa học viên khỏi khóa học & XÓA TOÀN BỘ THÀNH TÍCH HỌC TẬP ─────────────
 exports.unenrollStudent = async (req, res) => {
   try {
     checkSupabase();
-    const { id, studentId } = req.params;
+    const { id: courseId, studentId } = req.params;
 
-    // 1. Xóa khỏi bảng enrollments
+    // 1. Xóa khỏi bảng enrollments & course_enrollments
     try {
       await supabase
         .from('enrollments')
         .delete()
-        .eq('course_id', id)
+        .eq('course_id', courseId)
         .eq('student_id', studentId);
     } catch (e) {
       console.warn('Lỗi xóa enrollments:', e.message);
     }
 
-    // 2. Cập nhật lại course_name trong bảng students thành 'Chưa xếp khóa' nếu trùng tên khóa
     try {
-      const { data: course } = await supabase
-        .from('courses')
-        .select('name')
-        .eq('id', id)
-        .single();
+      await supabase
+        .from('course_enrollments')
+        .delete()
+        .eq('course_id', courseId)
+        .eq('student_id', studentId);
+    } catch (e) {}
 
-      if (course) {
-        await supabase
-          .from('students')
-          .update({ course_name: 'Chưa xếp khóa' })
-          .eq('id', studentId)
-          .eq('course_name', course.name);
-      } else {
-        await supabase
-          .from('students')
-          .update({ course_name: 'Chưa xếp khóa' })
-          .eq('id', studentId);
+    // 2. Xóa toàn bộ tiến độ học tập (study_progress) và kết quả kiểm tra (quiz_attempts) của khóa này
+    try {
+      const { data: chapters } = await supabase
+        .from('chapters')
+        .select('id')
+        .eq('course_id', courseId);
+
+      const chapterIds = (chapters || []).map(c => c.id);
+      if (chapterIds.length > 0) {
+        const { data: lessons } = await supabase
+          .from('lessons')
+          .select('id')
+          .in('chapter_id', chapterIds);
+
+        const lessonIds = (lessons || []).map(l => l.id);
+        if (lessonIds.length > 0) {
+          // Xóa thời gian học và trạng thái hoàn thành bài học
+          await supabase
+            .from('study_progress')
+            .delete()
+            .eq('student_id', studentId)
+            .in('lesson_id', lessonIds);
+
+          // Xóa kết quả làm bài trắc nghiệm
+          try {
+            await supabase
+              .from('quiz_attempts')
+              .delete()
+              .eq('student_id', studentId)
+              .in('lesson_id', lessonIds);
+          } catch (qaErr) {}
+
+          // Xóa thêm nếu bảng study_progress có cột chapter_id hoặc course_id
+          try {
+            await supabase
+              .from('study_progress')
+              .delete()
+              .eq('student_id', studentId)
+              .in('chapter_id', chapterIds);
+          } catch (chErr) {}
+          try {
+            await supabase
+              .from('study_progress')
+              .delete()
+              .eq('student_id', studentId)
+              .eq('course_id', courseId);
+          } catch (cErr) {}
+        }
       }
+    } catch (progErr) {
+      console.warn('Cảnh báo xóa study_progress:', progErr.message);
+    }
+
+    // 3. Reset hoàn toàn tiến độ học (progress = 0) và gỡ khóa học trong bảng students
+    try {
+      await supabase
+        .from('students')
+        .update({
+          course_name: 'Chưa xếp khóa',
+          progress: 0,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', studentId);
     } catch (e) {
-      console.warn('Cảnh báo cập nhật student course_name:', e.message);
+      console.warn('Cảnh báo cập nhật student course_name & progress:', e.message);
     }
 
     return res.json({
       success: true,
-      message: 'Đã xóa học viên ra khỏi khóa học thành công!'
+      message: 'Đã xóa học viên và toàn bộ thành tích học tập khỏi khóa học thành công!'
     });
   } catch (err) {
     console.error('Lỗi unenrollStudent:', err.message);

@@ -427,7 +427,12 @@ export default function CourseDetailModal({ isOpen, onClose, course: initialCour
     }
     setEnrolling(true);
     try {
-      const res = await enrollStudentsApi(course.id, selectedStudentIds);
+      const selectedUsernames = allStudents
+        .filter(s => selectedStudentIds.includes(s.id))
+        .map(s => s.username)
+        .filter(Boolean);
+
+      const res = await enrollStudentsApi(course.id, selectedStudentIds, selectedUsernames);
       alert(res?.message || `Đã thêm thành công ${selectedStudentIds.length} học viên vào khóa học!`);
       setSelectedStudentIds([]);
       await loadStudentsData();
@@ -439,12 +444,12 @@ export default function CourseDetailModal({ isOpen, onClose, course: initialCour
     }
   };
 
-  // ── Xóa Học Viên Khỏi Khóa Học ─────────────────────────────────────────────
+  // ── Xóa Học Viên Khỏi Khóa Học & XÓA SẠCH THÀNH TÍCH HỌC TẬP ────────────────
   const handleUnenrollStudent = async (student) => {
     if (!isAdmin) return;
     const studentName = student.full_name || student.username || student.id;
     const confirmed = window.confirm(
-      `Bạn có chắc chắn muốn xóa học viên "${studentName}" ra khỏi khóa "${course.name}" không?\n\nSau khi xóa, học viên sẽ không còn xem được nội dung và bài kiểm tra của khóa học này.`
+      `Bạn có chắc chắn muốn xóa học viên "${studentName}" ra khỏi khóa "${course.name}" không?\n\n⚠️ LƯU Ý QUAN TRỌNG: Toàn bộ tiến độ và thành tích học tập của học viên trong khóa học này sẽ bị XÓA VĨNH VIỄN. Khi được thêm lại vào khóa học, học viên sẽ phải học lại hoàn toàn từ đầu!`
     );
     if (!confirmed) return;
 
@@ -458,22 +463,28 @@ export default function CourseDetailModal({ isOpen, onClose, course: initialCour
         )
       }));
 
-      // Cập nhật local storage
+      // Cập nhật local storage và xóa sạch tiến độ học tập của học viên này
       if (typeof window !== 'undefined' && course?.id) {
         try {
           const localKey = `driveedu_enrolled_${course.id}`;
           const existing = JSON.parse(localStorage.getItem(localKey) || '[]');
           const filtered = existing.filter(id => id !== student.id && id !== student.username);
           localStorage.setItem(localKey, JSON.stringify(filtered));
+
+          // Xóa các key tiến độ học
+          localStorage.removeItem(`driveedu_progress_${student.id}_${course.id}`);
+          if (student.username) {
+            localStorage.removeItem(`driveedu_progress_${student.username}_${course.id}`);
+          }
         } catch (e) {}
       }
 
       setAllStudents(prev =>
-        prev.map(s => (s.id === student.id ? { ...s, course_name: 'Chưa xếp khóa' } : s))
+        prev.map(s => (s.id === student.id ? { ...s, course_name: 'Chưa xếp khóa', progress: 0 } : s))
       );
 
-      // 2. Gọi API backend
-      await unenrollStudentApi(course.id, student.id);
+      // 2. Gọi API backend (xóa enrollments, study_progress, quiz_attempts, reset students.progress = 0)
+      await unenrollStudentApi(course.id, student.id, student.username);
 
       // 3. Tải lại dữ liệu
       await reloadCurrentCourse();

@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../lib/AuthContext';
-import { fetchCourses, saveStudentProgressApi } from '../lib/api';
+import { fetchCourses, saveStudentProgressApi, fetchStudentProgressApi } from '../lib/api';
 import { initialCoursesData, initialStudentsData } from '../lib/mockData';
 import {
   BookOpen,
@@ -235,23 +235,72 @@ export default function StudentPortal({ onSwitchToAdmin }) {
   });
 
 
-  // 3. Khôi phục tiến độ học tập từ LocalStorage khi vào khóa học
+  // 3. Khôi phục tiến độ học tập và đồng bộ với backend (nếu bị xóa khỏi khóa học sẻ reset về 0)
   useEffect(() => {
     if (!selectedCourse || !user) return;
+    const storageKey = `driveedu_progress_${user.id || user.username || 'student'}_${selectedCourse.id}`;
+
+    const getInitial = () => {
+      const initial = {};
+      (selectedCourse.chapters || []).forEach(ch => {
+        initial[ch.id] = { studiedSeconds: 0, isCompleted: false };
+      });
+      return initial;
+    };
+
+    // Đọc trước từ LocalStorage
     try {
-      const storageKey = `driveedu_progress_${user.id || user.username || 'student'}_${selectedCourse.id}`;
       const saved = localStorage.getItem(storageKey);
       if (saved) {
         setChapterProgress(JSON.parse(saved));
       } else {
-        const initial = {};
-        (selectedCourse.chapters || []).forEach(ch => {
-          initial[ch.id] = { studiedSeconds: 0, isCompleted: false };
-        });
-        setChapterProgress(initial);
+        setChapterProgress(getInitial());
       }
     } catch (e) {
-      console.error('Lỗi đọc tiến độ:', e);
+      setChapterProgress(getInitial());
+    }
+
+    // Đồng bộ và kiểm tra với máy chủ: nếu học viên bị xóa thành tích hoặc add lại từ đầu
+    if (user.id) {
+      fetchStudentProgressApi(user.id).then(backendProgress => {
+        if (Array.isArray(backendProgress)) {
+          const allLessonIds = [];
+          (selectedCourse.chapters || []).forEach(ch => {
+            (ch.lessons || []).forEach(ls => allLessonIds.push(ls.id));
+          });
+
+          const courseRecords = backendProgress.filter(p => allLessonIds.includes(p.lesson_id));
+
+          // Nếu backend không có bản ghi nào của khóa này (vừa được add lại hoặc bị reset hoàn toàn)
+          if (courseRecords.length === 0) {
+            try {
+              localStorage.removeItem(storageKey);
+            } catch (e) {}
+            setChapterProgress(getInitial());
+          } else {
+            // Có dữ liệu hợp lệ trên backend, đồng bộ lại
+            setChapterProgress(prev => {
+              const updated = { ...prev };
+              (selectedCourse.chapters || []).forEach(ch => {
+                const chapterLessons = (ch.lessons || []).map(l => l.id);
+                const chapterRecords = courseRecords.filter(r => chapterLessons.includes(r.lesson_id));
+                const totalSeconds = chapterRecords.reduce((sum, r) => sum + (r.watched_seconds || 0), 0);
+                const isComp = chapterRecords.some(r => r.is_completed);
+                if (totalSeconds > 0 || isComp) {
+                  updated[ch.id] = {
+                    studiedSeconds: Math.max(updated[ch.id]?.studiedSeconds || 0, totalSeconds),
+                    isCompleted: updated[ch.id]?.isCompleted || isComp
+                  };
+                }
+              });
+              try {
+                localStorage.setItem(storageKey, JSON.stringify(updated));
+              } catch (e) {}
+              return updated;
+            });
+          }
+        }
+      }).catch(() => {});
     }
   }, [selectedCourse, user]);
 

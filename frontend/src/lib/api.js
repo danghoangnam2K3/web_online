@@ -221,43 +221,67 @@ export async function updateChapterRulesApi(courseId, chapterId, rules) {
   });
 }
 
-export async function enrollStudentsApi(courseId, studentIds) {
+export async function enrollStudentsApi(courseId, studentIds, studentUsernames = []) {
+  // Xóa sạch bộ nhớ tạm tiến độ học cũ để học viên học lại từ đầu
+  if (typeof window !== 'undefined') {
+    try {
+      const localKey = `driveedu_enrolled_${courseId}`;
+      const existing = JSON.parse(localStorage.getItem(localKey) || '[]');
+      const merged = Array.from(new Set([...existing, ...studentIds]));
+      localStorage.setItem(localKey, JSON.stringify(merged));
+
+      studentIds.forEach(sid => {
+        localStorage.removeItem(`driveedu_progress_${sid}_${courseId}`);
+      });
+      (studentUsernames || []).forEach(uname => {
+        if (uname) localStorage.removeItem(`driveedu_progress_${uname}_${courseId}`);
+      });
+    } catch (e) {}
+  }
+
   try {
     const res = await apiFetch(`/courses/${courseId}/enroll`, {
       method: 'POST',
       body: JSON.stringify({ student_ids: studentIds })
     });
-    try {
-      const localKey = `driveedu_enrolled_${courseId}`;
-      const existing = JSON.parse(localStorage.getItem(localKey) || '[]');
-      const merged = Array.from(new Set([...existing, ...studentIds]));
-      localStorage.setItem(localKey, JSON.stringify(merged));
-    } catch (e) {}
     return res;
   } catch (err) {
-    // Fallback lưu local khi offline
-    try {
-      const localKey = `driveedu_enrolled_${courseId}`;
-      const existing = JSON.parse(localStorage.getItem(localKey) || '[]');
-      const merged = Array.from(new Set([...existing, ...studentIds]));
-      localStorage.setItem(localKey, JSON.stringify(merged));
-    } catch (e) {}
     return { success: true, message: `Đã thêm thành công ${studentIds.length} học viên vào khóa học!` };
   }
 }
 
-export async function unenrollStudentApi(courseId, studentId) {
-  // 1. Cập nhật local cache ngay lập tức
+export async function unenrollStudentApi(courseId, studentId, studentUsername = '') {
+  // 1. Cập nhật local cache ngay lập tức & xóa sạch toàn bộ tiến độ học của học viên
   if (typeof window !== 'undefined') {
     try {
+      // Gỡ khỏi danh sách ghi danh
       const localKey = `driveedu_enrolled_${courseId}`;
       const existing = JSON.parse(localStorage.getItem(localKey) || '[]');
-      const filtered = existing.filter(id => id !== studentId);
+      const filtered = existing.filter(id => id !== studentId && id !== studentUsername);
       localStorage.setItem(localKey, JSON.stringify(filtered));
+
+      // Xóa dọn sạch các key lưu tiến độ học tập của học viên ở khóa học này
+      const keysToRemove = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k) {
+          const matchStudent = k.includes(`_${studentId}`) || (studentUsername && k.includes(`_${studentUsername}`));
+          const matchCourse = k.includes(`_${courseId}`) || k.includes(`_${courseId}_`);
+          if (k.startsWith('driveedu_progress_') && (matchStudent || matchCourse)) {
+            keysToRemove.push(k);
+          }
+        }
+      }
+      keysToRemove.push(`driveedu_progress_${studentId}_${courseId}`);
+      if (studentUsername) keysToRemove.push(`driveedu_progress_${studentUsername}_${courseId}`);
+
+      keysToRemove.forEach(k => {
+        try { localStorage.removeItem(k); } catch (e) {}
+      });
     } catch (e) {}
   }
 
-  // 2. Đồng bộ lên máy chủ backend
+  // 2. Đồng bộ lên máy chủ backend (xóa enrollments, study_progress, quiz_attempts)
   try {
     const res = await apiFetch(`/courses/${courseId}/enroll/${studentId}`, {
       method: 'DELETE'
@@ -265,7 +289,7 @@ export async function unenrollStudentApi(courseId, studentId) {
     return res;
   } catch (err) {
     console.warn('unenrollStudentApi cảnh báo backend (đã cập nhật local):', err.message);
-    return { success: true, message: 'Đã xóa học viên ra khỏi khóa học!' };
+    return { success: true, message: 'Đã xóa học viên và toàn bộ thành tích học tập ra khỏi khóa học!' };
   }
 }
 
