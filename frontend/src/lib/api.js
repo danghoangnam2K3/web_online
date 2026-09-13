@@ -34,10 +34,18 @@ export async function createCourseApi(courseData) {
   });
 }
 
-export async function createChapterApi(courseId, chapterTitle, minPct = 80) {
+export async function updateCourseApi(courseId, courseData) {
+  return apiFetch(`/courses/${courseId}`, {
+    method: 'PUT',
+    body: JSON.stringify(courseData)
+  });
+}
+
+export async function createChapterApi(courseId, chapterData) {
+  // chapterData: { title, min_completion_pct, duration_minutes }
   return apiFetch(`/courses/${courseId}/chapters`, {
     method: 'POST',
-    body: JSON.stringify({ title: chapterTitle, min_completion_pct: minPct })
+    body: JSON.stringify(chapterData)
   });
 }
 
@@ -48,10 +56,25 @@ export async function createLessonApi(courseId, chapterId, lessonData) {
   });
 }
 
-export async function updateChapterRulesApi(courseId, chapterId, min_completion_pct, min_watch_pct_default) {
+export async function createChapterQuizApi(courseId, chapterId, quizData) {
+  // quizData: { title, questions: [{question, options, answer}] }
+  return apiFetch(`/courses/${courseId}/chapters/${chapterId}/quiz`, {
+    method: 'POST',
+    body: JSON.stringify(quizData)
+  });
+}
+
+export async function updateChapterRulesApi(courseId, chapterId, rules) {
+  // rules: {
+  //   min_completion_pct,         // % thời gian tối thiểu để hoàn thành chương
+  //   require_quiz_pass,          // bool: cần đạt bài kiểm tra không
+  //   require_sequential,         // bool: cần hoàn thành bài trước rồi mới sang bài tiếp
+  //   min_watch_pct_video,        // % phải xem video để qua bài tiếp
+  //   require_scroll_reading      // bool: tài liệu đọc phải kéo xuống cuối & nhấn hoàn thành
+  // }
   return apiFetch(`/courses/${courseId}/chapters/${chapterId}/rules`, {
     method: 'PUT',
-    body: JSON.stringify({ min_completion_pct, min_watch_pct_default })
+    body: JSON.stringify(rules)
   });
 }
 
