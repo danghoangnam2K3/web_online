@@ -29,13 +29,19 @@ export default function CoursesTab({ initialSelectedCourseId }) {
     loadCourses();
   }, [search, selectedTier]);
 
-  async function loadCourses() {
-    setLoading(true);
+  async function loadCourses(silent = false) {
+    if (!silent) setLoading(true);
     setError('');
     try {
       const data = await fetchCourses(search, selectedTier);
       setCourses(data || []);
-      if (initialSelectedCourseId && data) {
+      // Đồng bộ selectedCourse khi đang mở modal chỉnh sửa để luôn có chapters/lessons mới nhất
+      setSelectedCourse(prev => {
+        if (!prev) return null;
+        const updated = (data || []).find(c => c.id === prev.id);
+        return updated || prev;
+      });
+      if (initialSelectedCourseId && data && !selectedCourse) {
         const found = data.find(c => c.id === initialSelectedCourseId);
         if (found) { setSelectedCourse(found); setIsDetailModalOpen(true); }
       }
@@ -43,7 +49,7 @@ export default function CoursesTab({ initialSelectedCourseId }) {
       setError(err.message);
       setCourses([]);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }
 
@@ -287,7 +293,7 @@ export default function CoursesTab({ initialSelectedCourseId }) {
         isOpen={isDetailModalOpen}
         onClose={() => setIsDetailModalOpen(false)}
         course={selectedCourse}
-        onUpdateCourse={loadCourses}
+        onUpdateCourse={() => loadCourses(true)}
       />
 
       {/* Modal Đề Mô */}

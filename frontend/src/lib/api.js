@@ -11,7 +11,7 @@ async function apiFetch(path, options = {}) {
   if (!res.ok || !json.success) {
     throw new Error(json.message || 'Lỗi không xác định từ server');
   }
-  return json.data;
+  return json.data !== undefined ? json.data : json;
 }
 
 // ─── Overview ─────────────────────────────────────────────────────────────────
@@ -25,6 +25,10 @@ export async function fetchCourses(search = '', tier = 'ALL') {
   if (search) query.append('search', search);
   if (tier !== 'ALL') query.append('tier', tier);
   return apiFetch(`/courses?${query.toString()}`);
+}
+
+export async function fetchCourseById(courseId) {
+  return apiFetch(`/courses/${courseId}`);
 }
 
 export async function createCourseApi(courseData) {

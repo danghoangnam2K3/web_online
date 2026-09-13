@@ -45,15 +45,19 @@ import {
   updateCourseApi,
   deleteChapterApi,
   deleteLessonApi,
-  createChapterQuizApi
+  createChapterQuizApi,
+  fetchCourseById
 } from '../lib/api';
 import CreateLessonModal from './CreateLessonModal';
 import CreateChapterQuizModal from './CreateChapterQuizModal';
 import { useAuth } from '../lib/AuthContext';
 
-export default function CourseDetailModal({ isOpen, onClose, course, onUpdateCourse }) {
+export default function CourseDetailModal({ isOpen, onClose, course: initialCourse, onUpdateCourse }) {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
+
+  // State cục bộ của khóa học để cập nhật ngay lập tức không cần F5
+  const [course, setCourse] = useState(initialCourse);
 
   const [activeSubTab, setActiveSubTab] = useState('intro'); // 'intro' | 'lessons'
 
@@ -101,19 +105,29 @@ export default function CourseDetailModal({ isOpen, onClose, course, onUpdateCou
   const [enrolling, setEnrolling] = useState(false);
 
   useEffect(() => {
-    if (isOpen && course) {
+    if (isOpen && initialCourse) {
+      setCourse(initialCourse);
       loadUnassignedStudents();
       setEditForm({
-        name: course.name || '',
-        description: course.description || '',
-        teacher_name: course.teacher_name || '',
-        license_tier: course.license_tier || '',
-        thumbnail_url: course.thumbnail_url || ''
+        name: initialCourse.name || '',
+        description: initialCourse.description || '',
+        teacher_name: initialCourse.teacher_name || '',
+        license_tier: initialCourse.license_tier || '',
+        thumbnail_url: initialCourse.thumbnail_url || ''
       });
       setIsEditingIntro(false);
       setActiveSubTab('intro');
+
+      // Tải ngầm phiên bản mới nhất từ backend để đảm bảo đồng bộ
+      if (initialCourse.id) {
+        fetchCourseById(initialCourse.id)
+          .then(fresh => {
+            if (fresh) setCourse(fresh);
+          })
+          .catch(() => {});
+      }
     }
-  }, [isOpen, course]);
+  }, [isOpen, initialCourse]);
 
   async function loadUnassignedStudents() {
     try {
@@ -121,6 +135,22 @@ export default function CourseDetailModal({ isOpen, onClose, course, onUpdateCou
       setUnassignedStudents(list || []);
     } catch { setUnassignedStudents([]); }
   }
+
+  // Helper tải lại chi tiết khóa học và thông báo tab cha cập nhật
+  const reloadCurrentCourse = async () => {
+    if (!course?.id) return;
+    try {
+      const fresh = await fetchCourseById(course.id);
+      if (fresh) {
+        setCourse(fresh);
+      }
+    } catch (err) {
+      console.warn('Lỗi tải lại chi tiết khóa học:', err);
+    }
+    if (onUpdateCourse) {
+      onUpdateCourse();
+    }
+  };
 
   if (!isOpen || !course) return null;
 
@@ -130,8 +160,9 @@ export default function CourseDetailModal({ isOpen, onClose, course, onUpdateCou
     setSavingIntro(true);
     try {
       await updateCourseApi(course.id, editForm);
+      setCourse(prev => ({ ...prev, ...editForm }));
       setIsEditingIntro(false);
-      onUpdateCourse();
+      await reloadCurrentCourse();
     } catch (err) {
       alert('Lỗi lưu thông tin: ' + err.message);
     } finally {
@@ -145,15 +176,19 @@ export default function CourseDetailModal({ isOpen, onClose, course, onUpdateCou
     if (!newChapterTitle.trim()) return;
     setCreatingChapter(true);
     try {
-      const res = await createChapterApi(course.id, {
-        title: newChapterTitle,
+      const newChapter = await createChapterApi(course.id, {
+        title: newChapterTitle.trim(),
         min_completion_pct: conditions.min_completion_pct
       });
-      if (res?.success) {
-        setNewChapterTitle('');
-        setNewChapterDuration(60);
-        onUpdateCourse();
+      setNewChapterTitle('');
+      setNewChapterDuration(60);
+      if (newChapter && newChapter.id) {
+        setCourse(prev => ({
+          ...prev,
+          chapters: [...(prev.chapters || []), { ...newChapter, lessons: [] }]
+        }));
       }
+      await reloadCurrentCourse();
     } catch (err) {
       alert('Lỗi tạo chương: ' + err.message);
     } finally {
@@ -165,8 +200,23 @@ export default function CourseDetailModal({ isOpen, onClose, course, onUpdateCou
   const handleCreateLesson = async (lessonData) => {
     if (!selectedChapterForLesson) return;
     try {
-      await createLessonApi(course.id, selectedChapterForLesson.id, lessonData);
-      onUpdateCourse();
+      const createdLesson = await createLessonApi(course.id, selectedChapterForLesson.id, lessonData);
+      if (createdLesson && createdLesson.id) {
+        setCourse(prev => ({
+          ...prev,
+          chapters: (prev.chapters || []).map(ch => {
+            if (ch.id === selectedChapterForLesson.id) {
+              return {
+                ...ch,
+                lessons: [...(ch.lessons || []), createdLesson]
+              };
+            }
+            return ch;
+          })
+        }));
+      }
+      setIsLessonModalOpen(false);
+      await reloadCurrentCourse();
     } catch (err) {
       alert('Lỗi tạo bài giảng: ' + err.message);
     }
@@ -175,8 +225,24 @@ export default function CourseDetailModal({ isOpen, onClose, course, onUpdateCou
   // ── Tạo/Lưu Bài Kiểm Tra Chương ──────────────────────────────────
   const handleSaveQuiz = async (quizData) => {
     if (!selectedChapterForQuiz) return;
-    await createChapterQuizApi(course.id, selectedChapterForQuiz.id, quizData);
-    onUpdateCourse();
+    try {
+      const savedQuiz = await createChapterQuizApi(course.id, selectedChapterForQuiz.id, quizData);
+      if (savedQuiz) {
+        setCourse(prev => ({
+          ...prev,
+          chapters: (prev.chapters || []).map(ch => {
+            if (ch.id === selectedChapterForQuiz.id) {
+              return { ...ch, quiz: savedQuiz };
+            }
+            return ch;
+          })
+        }));
+      }
+      setIsQuizModalOpen(false);
+      await reloadCurrentCourse();
+    } catch (err) {
+      alert('Lỗi lưu bài kiểm tra: ' + err.message);
+    }
   };
 
   // ── Bước 3: Lưu Điều Kiện (áp dụng toàn bộ) ─────────────────────────────────
@@ -193,7 +259,7 @@ export default function CourseDetailModal({ isOpen, onClose, course, onUpdateCou
         await updateChapterRulesApi(course.id, chapter.id, conditions);
       }
       alert(`✅ Đã lưu điều kiện hoàn thành cho ${course.chapters.length} chương!`);
-      onUpdateCourse();
+      await reloadCurrentCourse();
     } catch (err) {
       alert('Lỗi lưu điều kiện: ' + err.message);
     } finally {
@@ -210,12 +276,10 @@ export default function CourseDetailModal({ isOpen, onClose, course, onUpdateCou
     setEnrolling(true);
     try {
       const res = await enrollStudentsApi(course.id, selectedStudentIds);
-      if (res?.success) {
-        alert(res.message);
-        setSelectedStudentIds([]);
-        loadUnassignedStudents();
-        onUpdateCourse();
-      }
+      alert(res?.message || `Đã thêm thành công ${selectedStudentIds.length} học viên vào khóa học!`);
+      setSelectedStudentIds([]);
+      loadUnassignedStudents();
+      await reloadCurrentCourse();
     } catch (err) {
       alert('Lỗi: ' + err.message);
     } finally {
@@ -231,10 +295,15 @@ export default function CourseDetailModal({ isOpen, onClose, course, onUpdateCou
     );
     if (!confirmed) return;
     try {
+      setCourse(prev => ({
+        ...prev,
+        chapters: (prev.chapters || []).filter(c => c.id !== ch.id)
+      }));
       await deleteChapterApi(course.id, ch.id);
-      onUpdateCourse();
+      await reloadCurrentCourse();
     } catch (err) {
       alert('Lỗi xóa chương: ' + err.message);
+      await reloadCurrentCourse();
     }
   };
 
@@ -245,10 +314,23 @@ export default function CourseDetailModal({ isOpen, onClose, course, onUpdateCou
     );
     if (!confirmed) return;
     try {
+      setCourse(prev => ({
+        ...prev,
+        chapters: (prev.chapters || []).map(c => {
+          if (c.id === ch.id) {
+            return {
+              ...c,
+              lessons: (c.lessons || []).filter(l => l.id !== lesson.id)
+            };
+          }
+          return c;
+        })
+      }));
       await deleteLessonApi(course.id, ch.id, lesson.id);
-      onUpdateCourse();
+      await reloadCurrentCourse();
     } catch (err) {
       alert('Lỗi xóa bài giảng: ' + err.message);
+      await reloadCurrentCourse();
     }
   };
 
