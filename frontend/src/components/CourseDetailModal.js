@@ -44,9 +44,11 @@ import {
   fetchStudents,
   updateCourseApi,
   deleteChapterApi,
-  deleteLessonApi
+  deleteLessonApi,
+  createChapterQuizApi
 } from '../lib/api';
 import CreateLessonModal from './CreateLessonModal';
+import CreateChapterQuizModal from './CreateChapterQuizModal';
 import { useAuth } from '../lib/AuthContext';
 
 export default function CourseDetailModal({ isOpen, onClose, course, onUpdateCourse }) {
@@ -71,9 +73,13 @@ export default function CourseDetailModal({ isOpen, onClose, course, onUpdateCou
   const [newChapterDuration, setNewChapterDuration] = useState(60);
   const [creatingChapter, setCreatingChapter] = useState(false);
 
-  // ── States cho Bước 2: Tạo Bài Giảng ────────────────────────────────────────
+  // ── States cho Bước 2: Tạo Bài Giảng ───────────────────────────────────
   const [selectedChapterForLesson, setSelectedChapterForLesson] = useState(null);
   const [isLessonModalOpen, setIsLessonModalOpen] = useState(false);
+
+  // ── States cho Bài Kiểm Tra Chương ─────────────────────────────────
+  const [selectedChapterForQuiz, setSelectedChapterForQuiz] = useState(null);
+  const [isQuizModalOpen, setIsQuizModalOpen] = useState(false);
 
   // ── States cho Bước 3: Điều Kiện Hoàn Thành ─────────────────────────────────
   // Điều kiện áp dụng TOÀN BỘ tất cả chương & bài giảng
@@ -141,7 +147,6 @@ export default function CourseDetailModal({ isOpen, onClose, course, onUpdateCou
     try {
       const res = await createChapterApi(course.id, {
         title: newChapterTitle,
-        duration_minutes: newChapterDuration,
         min_completion_pct: conditions.min_completion_pct
       });
       if (res?.success) {
@@ -165,6 +170,13 @@ export default function CourseDetailModal({ isOpen, onClose, course, onUpdateCou
     } catch (err) {
       alert('Lỗi tạo bài giảng: ' + err.message);
     }
+  };
+
+  // ── Tạo/Lưu Bài Kiểm Tra Chương ──────────────────────────────────
+  const handleSaveQuiz = async (quizData) => {
+    if (!selectedChapterForQuiz) return;
+    await createChapterQuizApi(course.id, selectedChapterForQuiz.id, quizData);
+    onUpdateCourse();
   };
 
   // ── Bước 3: Lưu Điều Kiện (áp dụng toàn bộ) ─────────────────────────────────
@@ -603,6 +615,16 @@ export default function CourseDetailModal({ isOpen, onClose, course, onUpdateCou
                                   <Plus className="w-3.5 h-3.5" /> Thêm Bài Giảng
                                 </button>
                                 <button
+                                  onClick={() => {
+                                    setSelectedChapterForQuiz(ch);
+                                    setIsQuizModalOpen(true);
+                                  }}
+                                  className="px-3 py-1.5 bg-white border border-purple-300 text-purple-700 hover:bg-purple-50 text-xs font-bold rounded-lg flex items-center gap-1.5 shadow-sm whitespace-nowrap transition-colors"
+                                >
+                                  <Award className="w-3.5 h-3.5" />
+                                  {ch.quiz ? 'Sửa Kiểm Tra' : 'Tạo Kiểm Tra'}
+                                </button>
+                                <button
                                   onClick={() => handleDeleteChapter(ch)}
                                   className="p-1.5 rounded-lg border border-red-200 text-red-400 hover:bg-red-500 hover:text-white hover:border-red-500 transition-all"
                                   title="Xóa chương này"
@@ -1021,6 +1043,15 @@ export default function CourseDetailModal({ isOpen, onClose, course, onUpdateCou
         onClose={() => setIsLessonModalOpen(false)}
         onCreateLesson={handleCreateLesson}
         chapterTitle={selectedChapterForLesson?.title || ''}
+        chapterDuration={selectedChapterForLesson?.duration_minutes || 0}
+      />
+
+      {/* Modal tạo bài kiểm tra chương */}
+      <CreateChapterQuizModal
+        isOpen={isQuizModalOpen}
+        onClose={() => { setIsQuizModalOpen(false); setSelectedChapterForQuiz(null); }}
+        onSaveQuiz={handleSaveQuiz}
+        chapterTitle={selectedChapterForQuiz?.title || ''}
       />
     </div>
   );

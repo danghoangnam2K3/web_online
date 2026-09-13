@@ -1,16 +1,15 @@
 'use client';
 
 import React, { useState } from 'react';
-import { X, Video, ScrollText, PlusCircle, Clock, Percent, Link2, AlignLeft } from 'lucide-react';
+import { X, Video, ScrollText, PlusCircle, Percent, Link2, AlignLeft } from 'lucide-react';
 
-export default function CreateLessonModal({ isOpen, onClose, onCreateLesson, chapterTitle }) {
+export default function CreateLessonModal({ isOpen, onClose, onCreateLesson, chapterTitle, chapterDuration }) {
   const [lessonData, setLessonData] = useState({
     title: '',
-    type: 'video',         // 'video' | 'reading'
+    type: 'video',       // 'video' | 'reading'
     content_url: '',
     content_text: '',
-    duration_minutes: 30,
-    min_watch_pct: 80      // Chỉ áp dụng cho video
+    min_watch_pct: 80    // Chỉ áp dụng cho video
   });
 
   if (!isOpen) return null;
@@ -32,7 +31,6 @@ export default function CreateLessonModal({ isOpen, onClose, onCreateLesson, cha
       type: 'video',
       content_url: '',
       content_text: '',
-      duration_minutes: 30,
       min_watch_pct: 80
     });
     onClose();
@@ -58,6 +56,9 @@ export default function CreateLessonModal({ isOpen, onClose, onCreateLesson, cha
               <h2 className="text-base font-extrabold text-white">Tạo Bài Giảng Mới</h2>
               <p className="text-xs text-blue-200 mt-0.5 truncate max-w-xs">
                 Thuộc chương: <span className="font-bold text-white">{chapterTitle}</span>
+                {chapterDuration > 0 && (
+                  <span className="ml-2 text-blue-300">• {chapterDuration} phút</span>
+                )}
               </p>
             </div>
           </div>
@@ -138,7 +139,7 @@ export default function CreateLessonModal({ isOpen, onClose, onCreateLesson, cha
               {lessonData.type === 'video' ? (
                 <><Video className="w-3.5 h-3.5 flex-shrink-0" /> Học viên phải xem đủ % thời gian video quy định mới qua bài tiếp theo</>
               ) : (
-                <><ScrollText className="w-3.5 h-3.5 flex-shrink-0" /> Học viên phải kéo xuống cuối trang và nhấn "Hoàn Thành" mới qua bài tiếp</>
+                <><ScrollText className="w-3.5 h-3.5 flex-shrink-0" /> Học viên phải kéo xuống cuối trang và nhấn &quot;Hoàn Thành&quot; mới qua bài tiếp</>
               )}
             </div>
           </div>
@@ -185,55 +186,36 @@ export default function CreateLessonModal({ isOpen, onClose, onCreateLesson, cha
             </div>
           )}
 
-          {/* Thời lượng & % Video */}
-          <div className={`grid gap-3 ${lessonData.type === 'video' ? 'grid-cols-2' : 'grid-cols-1'}`}>
+          {/* % xem video tối thiểu — chỉ video */}
+          {lessonData.type === 'video' && (
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1.5">
                 <span className="flex items-center gap-1.5">
-                  <Clock className="w-3.5 h-3.5 text-slate-500" /> Thời Lượng Ước Tính
+                  <Percent className="w-3.5 h-3.5 text-blue-500" /> % Phải Xem Tối Thiểu (để qua bài tiếp)
                 </span>
               </label>
-              <div className="relative">
+              <div className="flex items-center gap-3">
                 <input
-                  type="number"
-                  min={1}
-                  max={480}
-                  value={lessonData.duration_minutes}
-                  onChange={e => setLessonData({ ...lessonData, duration_minutes: Number(e.target.value) })}
-                  className="w-full px-3.5 py-2.5 pr-14 rounded-xl border border-slate-300 text-sm focus:ring-2 focus:ring-blue-600 outline-none"
+                  type="range"
+                  min={50}
+                  max={100}
+                  step={5}
+                  value={lessonData.min_watch_pct}
+                  onChange={e => setLessonData({ ...lessonData, min_watch_pct: Number(e.target.value) })}
+                  className="flex-1 accent-blue-600"
                 />
-                <span className="absolute right-3.5 top-2.5 text-xs font-semibold text-slate-400">phút</span>
-              </div>
-            </div>
-
-            {lessonData.type === 'video' && (
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                  <span className="flex items-center gap-1.5">
-                    <Percent className="w-3.5 h-3.5 text-blue-500" /> % Phải Xem Tối Thiểu
-                  </span>
-                </label>
-                <div className="relative">
-                  <input
-                    type="number"
-                    min={50}
-                    max={100}
-                    value={lessonData.min_watch_pct}
-                    onChange={e => setLessonData({ ...lessonData, min_watch_pct: Number(e.target.value) })}
-                    className="w-full px-3.5 py-2.5 pr-8 rounded-xl border border-slate-300 text-sm focus:ring-2 focus:ring-blue-600 outline-none"
-                  />
-                  <span className="absolute right-3.5 top-2.5 text-xs font-semibold text-blue-500">%</span>
+                <div className="w-14 h-9 rounded-lg bg-blue-600 text-white font-bold text-sm flex items-center justify-center flex-shrink-0 shadow-sm">
+                  {lessonData.min_watch_pct}%
                 </div>
               </div>
-            )}
-          </div>
+            </div>
+          )}
 
-          {/* Ghi chú bài kiểm tra */}
-          <div className="p-3 bg-purple-50 border border-purple-200 rounded-xl text-[11px] text-purple-700 flex items-start gap-2">
-            <span className="text-purple-500 mt-0.5">💡</span>
+          {/* Ghi chú thời lượng */}
+          <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-[11px] text-slate-600 flex items-start gap-2">
+            <span className="mt-0.5">⏱️</span>
             <span>
-              <strong>Bài kiểm tra cuối chương</strong> sẽ được tự động tạo sau khi học viên hoàn thành 
-              tất cả bài giảng trong chương. Không cần tạo riêng.
+              Thời lượng của bài giảng sẽ lấy theo <strong>thời gian của chương</strong>{chapterDuration > 0 ? ` (${chapterDuration} phút)` : ''}. Không cần nhập riêng cho từng bài.
             </span>
           </div>
 
