@@ -43,7 +43,8 @@ router.put('/:id/chapters/:chapterId/rules', courseController.updateChapterRules
 router.post('/:id/chapters/:chapterId/quiz', courseController.saveChapterQuiz);
 router.get('/:id/chapters/:chapterId/quiz', courseController.getChapterQuiz);
 
-// Bước 4: Add học viên chưa add từ trang Học Viên vào khóa
+// Bước 4: Quản lý học viên ghi danh vào khóa
 router.post('/:id/enroll', courseController.enrollStudents);
+router.delete('/:id/enroll/:studentId', courseController.unenrollStudent);
 
 module.exports = router;

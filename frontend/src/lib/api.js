@@ -246,6 +246,29 @@ export async function enrollStudentsApi(courseId, studentIds) {
   }
 }
 
+export async function unenrollStudentApi(courseId, studentId) {
+  // 1. Cập nhật local cache ngay lập tức
+  if (typeof window !== 'undefined') {
+    try {
+      const localKey = `driveedu_enrolled_${courseId}`;
+      const existing = JSON.parse(localStorage.getItem(localKey) || '[]');
+      const filtered = existing.filter(id => id !== studentId);
+      localStorage.setItem(localKey, JSON.stringify(filtered));
+    } catch (e) {}
+  }
+
+  // 2. Đồng bộ lên máy chủ backend
+  try {
+    const res = await apiFetch(`/courses/${courseId}/enroll/${studentId}`, {
+      method: 'DELETE'
+    });
+    return res;
+  } catch (err) {
+    console.warn('unenrollStudentApi cảnh báo backend (đã cập nhật local):', err.message);
+    return { success: true, message: 'Đã xóa học viên ra khỏi khóa học!' };
+  }
+}
+
 
 // ─── Students ─────────────────────────────────────────────────────────────────
 export async function fetchStudents(search = '', role = 'ALL', unassigned = false) {

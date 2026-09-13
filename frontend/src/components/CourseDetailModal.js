@@ -46,7 +46,8 @@ import {
   deleteChapterApi,
   deleteLessonApi,
   createChapterQuizApi,
-  fetchCourseById
+  fetchCourseById,
+  unenrollStudentApi
 } from '../lib/api';
 import CreateLessonModal from './CreateLessonModal';
 import CreateChapterQuizModal from './CreateChapterQuizModal';
@@ -99,15 +100,18 @@ export default function CourseDetailModal({ isOpen, onClose, course: initialCour
   });
   const [savingConditions, setSavingConditions] = useState(false);
 
-  // ── States cho Add Học Viên ───────────────────────────────────────────────────
+  // ── States cho Add & Quản Lý Học Viên ─────────────────────────────────────────
+  const [allStudents, setAllStudents] = useState([]);
   const [unassignedStudents, setUnassignedStudents] = useState([]);
   const [selectedStudentIds, setSelectedStudentIds] = useState([]);
   const [enrolling, setEnrolling] = useState(false);
+  const [unenrollingId, setUnenrollingId] = useState(null);
+  const [studentSearch, setStudentSearch] = useState('');
 
   useEffect(() => {
     if (isOpen && initialCourse) {
       setCourse(initialCourse);
-      loadUnassignedStudents();
+      loadStudentsData();
       setEditForm({
         name: initialCourse.name || '',
         description: initialCourse.description || '',
@@ -129,12 +133,70 @@ export default function CourseDetailModal({ isOpen, onClose, course: initialCour
     }
   }, [isOpen, initialCourse]);
 
-  async function loadUnassignedStudents() {
+  async function loadStudentsData() {
     try {
-      const list = await fetchStudents('', 'ALL', true);
-      setUnassignedStudents(list || []);
-    } catch { setUnassignedStudents([]); }
+      const all = await fetchStudents('', 'ALL');
+      const list = all || [];
+      setAllStudents(list);
+      const unassigned = list.filter(s => !s.course_name || s.course_name === 'Chưa xếp khóa');
+      setUnassignedStudents(unassigned);
+    } catch {
+      setAllStudents([]);
+      setUnassignedStudents([]);
+    }
   }
+
+  // Lấy danh sách học viên đã ghi danh vào khóa học này (kèm đầy đủ thông tin để hiển thị)
+  const enrolledStudents = React.useMemo(() => {
+    if (!course) return [];
+
+    const enrolledIds = new Set(course.enrolled_student_ids || []);
+    if (typeof window !== 'undefined' && course.id) {
+      try {
+        const localList = JSON.parse(localStorage.getItem(`driveedu_enrolled_${course.id}`) || '[]');
+        localList.forEach(id => enrolledIds.add(id));
+      } catch (e) {}
+    }
+
+    const cName = String(course.name || '').trim().toLowerCase();
+    const cCode = String(course.code || '').trim().toLowerCase();
+
+    // Map qua allStudents
+    const matched = allStudents.filter(s => {
+      const matchId = enrolledIds.has(s.id) || enrolledIds.has(s.username);
+      const sCourse = String(s.course_name || '').trim().toLowerCase();
+      const matchName = sCourse && sCourse !== 'chưa xếp khóa' && (
+        sCourse === cName || (cCode && sCourse.includes(cCode)) || cName.includes(sCourse)
+      );
+      return matchId || matchName;
+    });
+
+    // Nếu có ID trong enrolledIds chưa có trong allStudents (ví dụ mã tạm), tạo placeholder để vẫn hiển thị và xóa được
+    const matchedIds = new Set(matched.map(s => s.id));
+    enrolledIds.forEach(id => {
+      if (!matchedIds.has(id)) {
+        matched.push({
+          id,
+          full_name: `Học viên (${String(id).slice(0, 8)}...)`,
+          username: id,
+          email: 'Đã phân bổ vào khóa',
+          phone: '—',
+          status: 'active'
+        });
+      }
+    });
+
+    if (!studentSearch.trim()) return matched;
+
+    const q = studentSearch.toLowerCase();
+    return matched.filter(s =>
+      (s.full_name && s.full_name.toLowerCase().includes(q)) ||
+      (s.username && s.username.toLowerCase().includes(q)) ||
+      (s.email && s.email.toLowerCase().includes(q)) ||
+      (s.phone && s.phone.includes(q)) ||
+      (s.cccd && s.cccd.includes(q))
+    );
+  }, [course, allStudents, studentSearch]);
 
   // Helper tải lại chi tiết khóa học và thông báo tab cha cập nhật
   const reloadCurrentCourse = async () => {
@@ -368,12 +430,58 @@ export default function CourseDetailModal({ isOpen, onClose, course: initialCour
       const res = await enrollStudentsApi(course.id, selectedStudentIds);
       alert(res?.message || `Đã thêm thành công ${selectedStudentIds.length} học viên vào khóa học!`);
       setSelectedStudentIds([]);
-      loadUnassignedStudents();
+      await loadStudentsData();
       await reloadCurrentCourse();
     } catch (err) {
       alert('Lỗi: ' + err.message);
     } finally {
       setEnrolling(false);
+    }
+  };
+
+  // ── Xóa Học Viên Khỏi Khóa Học ─────────────────────────────────────────────
+  const handleUnenrollStudent = async (student) => {
+    if (!isAdmin) return;
+    const studentName = student.full_name || student.username || student.id;
+    const confirmed = window.confirm(
+      `Bạn có chắc chắn muốn xóa học viên "${studentName}" ra khỏi khóa "${course.name}" không?\n\nSau khi xóa, học viên sẽ không còn xem được nội dung và bài kiểm tra của khóa học này.`
+    );
+    if (!confirmed) return;
+
+    setUnenrollingId(student.id);
+    try {
+      // 1. Cập nhật state cục bộ ngay lập tức (Optimistic UI)
+      setCourse(prev => ({
+        ...prev,
+        enrolled_student_ids: (prev.enrolled_student_ids || []).filter(
+          id => id !== student.id && id !== student.username
+        )
+      }));
+
+      // Cập nhật local storage
+      if (typeof window !== 'undefined' && course?.id) {
+        try {
+          const localKey = `driveedu_enrolled_${course.id}`;
+          const existing = JSON.parse(localStorage.getItem(localKey) || '[]');
+          const filtered = existing.filter(id => id !== student.id && id !== student.username);
+          localStorage.setItem(localKey, JSON.stringify(filtered));
+        } catch (e) {}
+      }
+
+      setAllStudents(prev =>
+        prev.map(s => (s.id === student.id ? { ...s, course_name: 'Chưa xếp khóa' } : s))
+      );
+
+      // 2. Gọi API backend
+      await unenrollStudentApi(course.id, student.id);
+
+      // 3. Tải lại dữ liệu
+      await reloadCurrentCourse();
+      await loadStudentsData();
+    } catch (err) {
+      alert('Lỗi xóa học viên: ' + err.message);
+    } finally {
+      setUnenrollingId(null);
     }
   };
 
@@ -646,28 +754,118 @@ export default function CourseDetailModal({ isOpen, onClose, course: initialCour
               </div>
 
               {/* Card học viên ghi danh */}
-              <div className="bg-white p-6 rounded-xl border border-slate-200/80 shadow-sm">
-                <h3 className="text-base font-bold text-slate-900 mb-3 flex items-center gap-2">
-                  <Users className="w-5 h-5 text-blue-600" /> 
-                  Học Viên Đã Ghi Danh ({course.enrolled_student_ids?.length || 0})
-                </h3>
-                <p className="text-xs text-slate-500 mb-4">
-                  Chuyển sang tab <strong className="text-blue-700">"Bài Học"</strong> để thêm học viên mới từ danh sách học viên tự do.
-                </p>
-                {course.enrolled_student_ids && course.enrolled_student_ids.length > 0 ? (
-                  <div className="flex flex-wrap gap-2">
-                    {course.enrolled_student_ids.map((id, index) => (
-                      <span
-                        key={index}
-                        className="px-3 py-1.5 bg-blue-50 border border-blue-200 text-blue-800 rounded-lg text-xs font-semibold flex items-center"
-                      >
-                        <UserPlus className="w-3.5 h-3.5 mr-1.5 text-blue-600" /> Mã HV: {id}
-                      </span>
-                    ))}
+              <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                      <Users className="w-5 h-5 text-blue-600" /> 
+                      Học Viên Đã Ghi Danh ({enrolledStudents.length})
+                    </h3>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Danh sách các học viên được phân bổ và có quyền học khóa học này
+                    </p>
+                  </div>
+
+                  {/* Tìm kiếm nhanh học viên */}
+                  {enrolledStudents.length > 0 && (
+                    <div className="relative min-w-[240px]">
+                      <input
+                        type="text"
+                        value={studentSearch}
+                        onChange={e => setStudentSearch(e.target.value)}
+                        placeholder="Tìm tên, SĐT, CCCD..."
+                        className="w-full pl-3.5 pr-8 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                      {studentSearch && (
+                        <button
+                          onClick={() => setStudentSearch('')}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {enrolledStudents.length > 0 ? (
+                  <div className="divide-y divide-slate-100 border border-slate-200/70 rounded-xl overflow-hidden max-h-[380px] overflow-y-auto">
+                    {enrolledStudents.map((st, sIdx) => {
+                      const isDeleting = unenrollingId === st.id;
+                      const initial = ((st.full_name || 'H')[0] || 'H').toUpperCase();
+
+                      return (
+                        <div
+                          key={st.id || sIdx}
+                          className="p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/70 transition-colors"
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            {st.avatar_url ? (
+                              <img
+                                src={st.avatar_url}
+                                alt={st.full_name}
+                                className="w-10 h-10 rounded-full object-cover border border-slate-200 flex-shrink-0"
+                              />
+                            ) : (
+                              <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white text-sm font-bold flex-shrink-0 shadow-xs">
+                                {initial}
+                              </div>
+                            )}
+
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="font-bold text-slate-900 text-sm truncate">
+                                  {st.full_name}
+                                </span>
+                                {st.username && (
+                                  <span className="text-[11px] font-mono text-slate-400">
+                                    @{st.username}
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="flex items-center gap-3 text-xs text-slate-500 flex-wrap mt-0.5">
+                                {st.cccd && (
+                                  <span>CCCD: <strong className="text-slate-700">{st.cccd}</strong></span>
+                                )}
+                                {st.phone && (
+                                  <span>SĐT: <strong className="text-slate-700">{st.phone}</strong></span>
+                                )}
+                                {st.email && !st.email.startsWith('Đã') && (
+                                  <span className="text-slate-400">{st.email}</span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Trạng thái và Nút Xóa học viên khỏi khóa */}
+                          <div className="flex items-center gap-2.5 self-end sm:self-center flex-shrink-0">
+                            <span className="px-2 py-0.5 text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full">
+                              Đang học
+                            </span>
+                            {isAdmin && (
+                              <button
+                                onClick={() => handleUnenrollStudent(st)}
+                                disabled={isDeleting}
+                                className="px-3 py-1.5 rounded-lg text-xs font-bold text-red-600 hover:text-white bg-red-50 hover:bg-red-600 border border-red-200 hover:border-red-600 transition-all flex items-center gap-1.5 shadow-2xs disabled:opacity-50"
+                                title={`Xóa học viên ${st.full_name} ra khỏi khóa học này`}
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                <span>{isDeleting ? 'Đang xóa...' : 'Xóa khỏi khóa'}</span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 ) : (
-                  <div className="p-4 text-center border-2 border-dashed border-slate-200 rounded-xl text-slate-400 text-xs font-semibold">
-                    Khóa học vừa được khởi tạo, chưa có học viên. Vui lòng chuyển sang "Bài Học" để phân bổ học viên.
+                  <div className="p-8 text-center border-2 border-dashed border-slate-200 rounded-xl bg-slate-50/50 space-y-2">
+                    <Users className="w-10 h-10 text-slate-300 mx-auto" />
+                    <p className="text-sm font-bold text-slate-700">Chưa có học viên nào được ghi danh vào khóa</p>
+                    <p className="text-xs text-slate-400 max-w-md mx-auto">
+                      Chuyển sang mục <strong className="text-blue-700">"Bài Học"</strong> ở phía trên để thêm học viên từ danh sách chờ phân bổ.
+                    </p>
                   </div>
                 )}
               </div>

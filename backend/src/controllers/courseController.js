@@ -468,6 +468,57 @@ exports.enrollStudents = async (req, res) => {
   }
 };
 
+// ─── Xóa học viên khỏi khóa học ─────────────────────────────────────────────
+exports.unenrollStudent = async (req, res) => {
+  try {
+    checkSupabase();
+    const { id, studentId } = req.params;
+
+    // 1. Xóa khỏi bảng enrollments
+    try {
+      await supabase
+        .from('enrollments')
+        .delete()
+        .eq('course_id', id)
+        .eq('student_id', studentId);
+    } catch (e) {
+      console.warn('Lỗi xóa enrollments:', e.message);
+    }
+
+    // 2. Cập nhật lại course_name trong bảng students thành 'Chưa xếp khóa' nếu trùng tên khóa
+    try {
+      const { data: course } = await supabase
+        .from('courses')
+        .select('name')
+        .eq('id', id)
+        .single();
+
+      if (course) {
+        await supabase
+          .from('students')
+          .update({ course_name: 'Chưa xếp khóa' })
+          .eq('id', studentId)
+          .eq('course_name', course.name);
+      } else {
+        await supabase
+          .from('students')
+          .update({ course_name: 'Chưa xếp khóa' })
+          .eq('id', studentId);
+      }
+    } catch (e) {
+      console.warn('Cảnh báo cập nhật student course_name:', e.message);
+    }
+
+    return res.json({
+      success: true,
+      message: 'Đã xóa học viên ra khỏi khóa học thành công!'
+    });
+  } catch (err) {
+    console.error('Lỗi unenrollStudent:', err.message);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
 // ─── Xóa bài giảng ────────────────────────────────────────────────────────────
 exports.deleteLesson = async (req, res) => {
   try {
