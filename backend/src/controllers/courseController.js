@@ -508,27 +508,84 @@ exports.unenrollStudent = async (req, res) => {
   try {
     checkSupabase();
     const { id: courseId, studentId } = req.params;
+    const username = req.body?.username || req.query?.username;
+    const email = req.body?.email || req.query?.email;
 
-    // 1. Xóa khỏi bảng enrollments & course_enrollments
-    try {
-      await supabase
-        .from('enrollments')
-        .delete()
-        .eq('course_id', courseId)
-        .eq('student_id', studentId);
-    } catch (e) {
-      console.warn('Lỗi xóa enrollments:', e.message);
+    const isUUID = (str) => typeof str === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(str);
+
+    // 1. Tìm thông tin học viên trong cơ sở dữ liệu để lấy đủ UUID, username và email
+    let studentRecord = null;
+    if (studentId && isUUID(studentId)) {
+      try {
+        const { data: s } = await supabase.from('students').select('*').eq('id', studentId).single();
+        if (s) studentRecord = s;
+      } catch (e) {}
     }
 
-    try {
-      await supabase
-        .from('course_enrollments')
-        .delete()
-        .eq('course_id', courseId)
-        .eq('student_id', studentId);
-    } catch (e) {}
+    if (!studentRecord && studentId) {
+      try {
+        const { data: sList } = await supabase
+          .from('students')
+          .select('*')
+          .or(`username.ilike.${studentId},email.ilike.${studentId}`)
+          .limit(1);
+        if (sList && sList.length > 0) studentRecord = sList[0];
+      } catch (e) {}
+    }
 
-    // 2. Xóa toàn bộ tiến độ học tập (study_progress) và kết quả kiểm tra (quiz_attempts) của khóa này
+    if (!studentRecord && username) {
+      try {
+        const { data: sList } = await supabase.from('students').select('*').ilike('username', username).limit(1);
+        if (sList && sList.length > 0) studentRecord = sList[0];
+      } catch (e) {}
+    }
+
+    if (!studentRecord && email) {
+      try {
+        const { data: sList } = await supabase.from('students').select('*').ilike('email', email).limit(1);
+        if (sList && sList.length > 0) studentRecord = sList[0];
+      } catch (e) {}
+    }
+
+    // Danh sách tất cả các định danh của học viên này
+    const studentUuids = Array.from(new Set([
+      studentRecord?.id,
+      isUUID(studentId) ? studentId : null
+    ].filter(Boolean)));
+
+    const studentUsernames = Array.from(new Set([
+      studentRecord?.username,
+      username,
+      !isUUID(studentId) ? studentId : null
+    ].filter(Boolean)));
+
+    const studentEmails = Array.from(new Set([
+      studentRecord?.email,
+      email
+    ].filter(Boolean)));
+
+    // 2. Xóa khỏi bảng enrollments & course_enrollments
+    for (const uid of studentUuids) {
+      try {
+        await supabase
+          .from('enrollments')
+          .delete()
+          .eq('course_id', courseId)
+          .eq('student_id', uid);
+      } catch (e) {
+        console.warn('Lỗi xóa enrollments:', e.message);
+      }
+
+      try {
+        await supabase
+          .from('course_enrollments')
+          .delete()
+          .eq('course_id', courseId)
+          .eq('student_id', uid);
+      } catch (e) {}
+    }
+
+    // 3. Xóa toàn bộ tiến độ học tập (study_progress) và kết quả kiểm tra (quiz_attempts) của khóa này
     try {
       const { data: chapters } = await supabase
         .from('chapters')
@@ -544,55 +601,90 @@ exports.unenrollStudent = async (req, res) => {
 
         const lessonIds = (lessons || []).map(l => l.id);
         if (lessonIds.length > 0) {
-          // Xóa thời gian học và trạng thái hoàn thành bài học
-          await supabase
-            .from('study_progress')
-            .delete()
-            .eq('student_id', studentId)
-            .in('lesson_id', lessonIds);
-
-          // Xóa kết quả làm bài trắc nghiệm
-          try {
+          for (const uid of studentUuids) {
+            // Xóa thời gian học và trạng thái hoàn thành bài học
             await supabase
-              .from('quiz_attempts')
+              .from('study_progress')
               .delete()
-              .eq('student_id', studentId)
+              .eq('student_id', uid)
               .in('lesson_id', lessonIds);
-          } catch (qaErr) {}
 
-          // Xóa thêm nếu bảng study_progress có cột chapter_id hoặc course_id
-          try {
-            await supabase
-              .from('study_progress')
-              .delete()
-              .eq('student_id', studentId)
-              .in('chapter_id', chapterIds);
-          } catch (chErr) {}
-          try {
-            await supabase
-              .from('study_progress')
-              .delete()
-              .eq('student_id', studentId)
-              .eq('course_id', courseId);
-          } catch (cErr) {}
+            // Xóa kết quả làm bài trắc nghiệm
+            try {
+              await supabase
+                .from('quiz_attempts')
+                .delete()
+                .eq('student_id', uid)
+                .in('lesson_id', lessonIds);
+            } catch (qaErr) {}
+
+            try {
+              await supabase
+                .from('study_progress')
+                .delete()
+                .eq('student_id', uid)
+                .in('chapter_id', chapterIds);
+            } catch (chErr) {}
+
+            try {
+              await supabase
+                .from('study_progress')
+                .delete()
+                .eq('student_id', uid)
+                .eq('course_id', courseId);
+            } catch (cErr) {}
+          }
         }
       }
     } catch (progErr) {
       console.warn('Cảnh báo xóa study_progress:', progErr.message);
     }
 
-    // 3. Reset hoàn toàn tiến độ học (progress = 0) và gỡ khóa học trong bảng students
-    try {
-      await supabase
-        .from('students')
-        .update({
-          course_name: 'Chưa xếp khóa',
-          progress: 0,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', studentId);
-    } catch (e) {
-      console.warn('Cảnh báo cập nhật student course_name & progress:', e.message);
+    // 4. Reset hoàn toàn tiến độ học (progress = 0) và gỡ khóa học trong bảng students
+    // Cập nhật theo mọi khóa nhận diện (UUID, username, email)
+    for (const uid of studentUuids) {
+      try {
+        await supabase
+          .from('students')
+          .update({
+            course_name: 'Chưa xếp khóa',
+            progress: 0,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', uid);
+      } catch (e) {
+        console.warn('Cảnh báo cập nhật student by id:', e.message);
+      }
+    }
+
+    for (const uname of studentUsernames) {
+      try {
+        await supabase
+          .from('students')
+          .update({
+            course_name: 'Chưa xếp khóa',
+            progress: 0,
+            updated_at: new Date().toISOString()
+          })
+          .ilike('username', uname);
+      } catch (e) {
+        console.warn('Cảnh báo cập nhật student by username:', e.message);
+      }
+    }
+
+    for (const uemail of studentEmails) {
+      try {
+        await supabase
+          .from('students')
+          .update({
+            course_name: 'Chưa xếp khóa',
+            progress: 0,
+            updated_at: new Date().toISOString()
+          })
+          .ilike('email', uemail);
+      } catch (e) {
+        console.warn('Cảnh báo cập nhật student by email:', e.message);
+      }
     }
 
     return res.json({

@@ -250,14 +250,16 @@ export async function enrollStudentsApi(courseId, studentIds, studentUsernames =
   }
 }
 
-export async function unenrollStudentApi(courseId, studentId, studentUsername = '') {
+export async function unenrollStudentApi(courseId, studentId, studentUsername = '', studentEmail = '') {
   // 1. Cập nhật local cache ngay lập tức & xóa sạch toàn bộ tiến độ học của học viên
   if (typeof window !== 'undefined') {
     try {
       // Gỡ khỏi danh sách ghi danh
       const localKey = `driveedu_enrolled_${courseId}`;
       const existing = JSON.parse(localStorage.getItem(localKey) || '[]');
-      const filtered = existing.filter(id => id !== studentId && id !== studentUsername);
+      const filtered = existing.filter(
+        id => id !== studentId && id !== studentUsername && id !== studentEmail
+      );
       localStorage.setItem(localKey, JSON.stringify(filtered));
 
       // Xóa dọn sạch các key lưu tiến độ học tập của học viên ở khóa học này
@@ -265,7 +267,10 @@ export async function unenrollStudentApi(courseId, studentId, studentUsername = 
       for (let i = 0; i < localStorage.length; i++) {
         const k = localStorage.key(i);
         if (k) {
-          const matchStudent = k.includes(`_${studentId}`) || (studentUsername && k.includes(`_${studentUsername}`));
+          const matchStudent =
+            k.includes(`_${studentId}`) ||
+            (studentUsername && k.includes(`_${studentUsername}`)) ||
+            (studentEmail && k.includes(`_${studentEmail}`));
           const matchCourse = k.includes(`_${courseId}`) || k.includes(`_${courseId}_`);
           if (k.startsWith('driveedu_progress_') && (matchStudent || matchCourse)) {
             keysToRemove.push(k);
@@ -283,8 +288,14 @@ export async function unenrollStudentApi(courseId, studentId, studentUsername = 
 
   // 2. Đồng bộ lên máy chủ backend (xóa enrollments, study_progress, quiz_attempts)
   try {
-    const res = await apiFetch(`/courses/${courseId}/enroll/${studentId}`, {
-      method: 'DELETE'
+    const query = new URLSearchParams();
+    if (studentUsername) query.append('username', studentUsername);
+    if (studentEmail) query.append('email', studentEmail);
+    const qs = query.toString() ? `?${query.toString()}` : '';
+
+    const res = await apiFetch(`/courses/${courseId}/enroll/${studentId}${qs}`, {
+      method: 'DELETE',
+      body: JSON.stringify({ username: studentUsername, email: studentEmail })
     });
     return res;
   } catch (err) {

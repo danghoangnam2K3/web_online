@@ -468,13 +468,28 @@ export default function CourseDetailModal({ isOpen, onClose, course: initialCour
         try {
           const localKey = `driveedu_enrolled_${course.id}`;
           const existing = JSON.parse(localStorage.getItem(localKey) || '[]');
-          const filtered = existing.filter(id => id !== student.id && id !== student.username);
+          const filtered = existing.filter(
+            id => id !== student.id && id !== student.username && id !== student.email
+          );
           localStorage.setItem(localKey, JSON.stringify(filtered));
 
           // Xóa các key tiến độ học
           localStorage.removeItem(`driveedu_progress_${student.id}_${course.id}`);
           if (student.username) {
             localStorage.removeItem(`driveedu_progress_${student.username}_${course.id}`);
+          }
+
+          // Nếu máy này đang lưu session của học viên bị xóa, đồng bộ ngay lập tức về Chưa xếp khóa
+          const curUser = JSON.parse(localStorage.getItem('driveedu_user') || 'null');
+          if (
+            curUser &&
+            (curUser.id === student.id ||
+             curUser.username === student.username ||
+             curUser.email === student.email)
+          ) {
+            curUser.course_name = 'Chưa xếp khóa';
+            curUser.progress = 0;
+            localStorage.setItem('driveedu_user', JSON.stringify(curUser));
           }
         } catch (e) {}
       }
@@ -484,7 +499,7 @@ export default function CourseDetailModal({ isOpen, onClose, course: initialCour
       );
 
       // 2. Gọi API backend (xóa enrollments, study_progress, quiz_attempts, reset students.progress = 0)
-      await unenrollStudentApi(course.id, student.id, student.username);
+      await unenrollStudentApi(course.id, student.id, student.username, student.email);
 
       // 3. Tải lại dữ liệu
       await reloadCurrentCourse();

@@ -374,35 +374,65 @@ async function uploadAvatar(req, res) {
   return res.json({ success: true, data: { url: urlData.publicUrl } });
 }
 
-// ─── Lấy hồ sơ học viên theo email từ Supabase ────────────────────────────────
+// ─── Lấy hồ sơ học viên theo id, username hoặc email từ Supabase ─────────────
 async function getMyStudentProfile(req, res) {
   if (!checkSupabaseEnv(res)) return;
 
-  const { email } = req.query;
-  if (!email) return res.status(400).json({ success: false, message: 'Thiếu email!' });
+  const { email, username, id } = req.query;
+  if (!email && !username && !id) {
+    return res.status(400).json({ success: false, message: 'Thiếu thông tin nhận diện (id, username hoặc email)!' });
+  }
 
   const supabase = createClient(supabaseUrl, supabaseKey);
+  const isUUID = (str) => typeof str === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(str);
 
-  const { data: student, error } = await supabase
-    .from('students')
-    .select('*')
-    .eq('email', email)
-    .single();
+  let student = null;
+  if (id && isUUID(id)) {
+    try {
+      const { data } = await supabase.from('students').select('*').eq('id', id).single();
+      if (data) student = data;
+    } catch (e) {}
+  }
 
-  if (error || !student) {
+  if (!student && username) {
+    try {
+      const { data } = await supabase.from('students').select('*').ilike('username', username).single();
+      if (data) student = data;
+    } catch (e) {}
+  }
+
+  if (!student && email) {
+    try {
+      const { data } = await supabase.from('students').select('*').ilike('email', email).single();
+      if (data) student = data;
+    } catch (e) {}
+  }
+
+  if (!student && id && !isUUID(id)) {
+    try {
+      const { data } = await supabase.from('students').select('*').or(`username.ilike.${id},email.ilike.${id}`).limit(1);
+      if (data && data.length > 0) student = data[0];
+    } catch (e) {}
+  }
+
+  if (!student) {
     return res.json({ success: true, data: null });
   }
 
-  const { data: enrollments } = await supabase
-    .from('enrollments')
-    .select(`
-      enrolled_at,
-      courses (
-        id, name, code, license_tier, teacher_name, thumbnail_url, description,
-        chapters ( id, title, order_index, min_completion_pct )
-      )
-    `)
-    .eq('student_id', student.id);
+  let enrollments = [];
+  try {
+    const { data: enData } = await supabase
+      .from('enrollments')
+      .select(`
+        enrolled_at,
+        courses (
+          id, name, code, license_tier, teacher_name, thumbnail_url, description,
+          chapters ( id, title, order_index, min_completion_pct )
+        )
+      `)
+      .eq('student_id', student.id);
+    if (enData) enrollments = enData;
+  } catch (e) {}
 
   return res.json({
     success: true,

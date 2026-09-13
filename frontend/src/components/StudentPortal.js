@@ -154,25 +154,37 @@ export default function StudentPortal({ onSwitchToAdmin }) {
         setAllCourses(initialCoursesData);
       }
 
-      // Lấy thông tin học viên chi tiết
-      if (user?.email) {
+      // Lấy thông tin học viên chi tiết trực tiếp từ Supabase
+      if (user) {
         try {
-          const res = await fetch(`${BASE_URL}/auth/me?email=${encodeURIComponent(user.email)}`);
+          const qParams = new URLSearchParams();
+          if (user.id) qParams.append('id', user.id);
+          if (user.username) qParams.append('username', user.username);
+          if (user.email) qParams.append('email', user.email);
+
+          const res = await fetch(`${BASE_URL}/auth/me?${qParams.toString()}`);
           const json = await res.json();
           if (json.success && json.data) {
             setStudentProfile(json.data);
+            // Đồng bộ trạng thái khóa học trong session nếu admin vừa xóa hoặc đổi khóa
+            if (json.data.course_name && user.course_name !== json.data.course_name) {
+              user.course_name = json.data.course_name;
+              try {
+                localStorage.setItem('driveedu_user', JSON.stringify({ ...user, course_name: json.data.course_name, progress: json.data.progress }));
+              } catch (e) {}
+            }
           } else {
-            // Tìm trong initialStudentsData
-            const found = initialStudentsData.find(s => s.email === user.email || s.username === user.username);
+            const found = initialStudentsData.find(s =>
+              (user.email && s.email === user.email) || (user.username && s.username === user.username) || s.id === user.id
+            );
             setStudentProfile(found || user);
           }
         } catch (e) {
-          const found = initialStudentsData.find(s => s.email === user.email || s.username === user.username);
+          const found = initialStudentsData.find(s =>
+            (user.email && s.email === user.email) || (user.username && s.username === user.username) || s.id === user.id
+          );
           setStudentProfile(found || user);
         }
-      } else if (user) {
-        const found = initialStudentsData.find(s => s.username === user.username || s.id === user.id);
-        setStudentProfile(found || user);
       }
 
       setLoading(false);
@@ -202,23 +214,27 @@ export default function StudentPortal({ onSwitchToAdmin }) {
   const studentCourses = allCourses.filter(course => {
     if (!user || !course) return false;
 
-    const studentId = user.id || studentProfile?.id;
-    const studentUsername = user.username || studentProfile?.username;
-    const studentEmail = user.email || studentProfile?.email;
-    const assignedCourseName = String(user.course_name || studentProfile?.course_name || '').trim();
+    const currentProfile = studentProfile || user;
+    const studentId = user.id || currentProfile?.id;
+    const studentUsername = user.username || currentProfile?.username;
+    const studentEmail = user.email || currentProfile?.email;
+    const assignedCourseName = String(currentProfile?.course_name || user.course_name || '').trim();
+
+    // Học viên đang ở trạng thái chưa được xếp khóa học
+    const isUnassigned = !assignedCourseName || assignedCourseName.toLowerCase() === 'chưa xếp khóa';
 
     // 1. Kiểm tra trong mảng enrolled_student_ids của khóa học
     const inEnrolledIds = Array.isArray(course.enrolled_student_ids) && course.enrolled_student_ids.some(id =>
       id && (id === studentId || id === studentUsername || id === studentEmail)
     );
 
-    // 2. Kiểm tra trong LocalStorage nếu admin vừa ép vào khóa
+    // 2. Kiểm tra trong LocalStorage nếu admin vừa ép vào khóa trên trình duyệt
     let inLocalEnroll = false;
     if (typeof window !== 'undefined') {
       try {
         const localKey = `driveedu_enrolled_${course.id}`;
         const localList = JSON.parse(localStorage.getItem(localKey) || '[]');
-        inLocalEnroll = Array.isArray(localList) && localList.some(id => id === studentId || id === studentUsername);
+        inLocalEnroll = Array.isArray(localList) && localList.some(id => id === studentId || id === studentUsername || id === studentEmail);
       } catch (e) {}
     }
 
@@ -227,11 +243,17 @@ export default function StudentPortal({ onSwitchToAdmin }) {
     const cCode = String(course.code || '').toLowerCase();
     const aName = assignedCourseName.toLowerCase();
 
-    const matchCourseName = aName && aName !== 'chưa xếp khóa' && (
+    const matchCourseName = !isUnassigned && (
       cName.includes(aName) || aName.includes(cName) || (cCode && aName.includes(cCode))
     );
 
-    return inEnrolledIds || inLocalEnroll || matchCourseName;
+    // NẾU HỌC VIÊN ĐÃ BỊ XÓA KHỎI KHÓA (HOẶC CHƯA XẾP KHÓA) VÀ KHÔNG CÓ TRONG LOCAL ENROLL:
+    // Dứt khoát không hiển thị khóa học này!
+    if (isUnassigned && !inLocalEnroll) {
+      return false;
+    }
+
+    return inLocalEnroll || matchCourseName || (inEnrolledIds && !isUnassigned);
   });
 
 

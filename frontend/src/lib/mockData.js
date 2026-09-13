@@ -58,7 +58,7 @@ export const initialCoursesData = [
         ]
       }
     ],
-    enrolled_student_ids: ['hv1', 'hv2', 'hv3']
+    enrolled_student_ids: []
   },
   {
     id: 'c2',
@@ -71,7 +71,7 @@ export const initialCoursesData = [
     status: 'active',
     created_at: '2026-02-01T09:00:00Z',
     chapters: [],
-    enrolled_student_ids: ['hv4']
+    enrolled_student_ids: []
   },
   {
     id: 'c3',
@@ -101,8 +101,8 @@ export const initialStudentsData = [
     phone: '0912345678',
     status: 'active',
     created_at: '2026-01-10T08:00:00Z',
-    course_name: 'Khóa B2 K68',
-    progress: 85
+    course_name: 'Chưa xếp khóa',
+    progress: 0
   },
   {
     id: 'hv2',
@@ -116,8 +116,8 @@ export const initialStudentsData = [
     phone: '0987654321',
     status: 'active',
     created_at: '2026-01-12T09:30:00Z',
-    course_name: 'Khóa B2 K68',
-    progress: 45
+    course_name: 'Chưa xếp khóa',
+    progress: 0
   },
   {
     id: 'hv3',
@@ -131,8 +131,8 @@ export const initialStudentsData = [
     phone: '0933445566',
     status: 'active',
     created_at: '2026-01-14T10:15:00Z',
-    course_name: 'Khóa B2 K68',
-    progress: 90
+    course_name: 'Chưa xếp khóa',
+    progress: 0
   },
   {
     id: 'hv4',
@@ -146,8 +146,8 @@ export const initialStudentsData = [
     phone: '0977889900',
     status: 'active',
     created_at: '2026-02-01T14:20:00Z',
-    course_name: 'Khóa Hạng C',
-    progress: 100
+    course_name: 'Chưa xếp khóa',
+    progress: 0
   },
   {
     id: 'hv5',
