@@ -9,11 +9,42 @@ import CoursesTab from '../components/CoursesTab';
 import StudentsTab from '../components/StudentsTab';
 import ReportsTab from '../components/ReportsTab';
 
+const VALID_TABS = ['overview', 'courses', 'students', 'reports'];
+
+function getTabFromHash() {
+  if (typeof window === 'undefined') return 'overview';
+  const hash = window.location.hash.replace('#', '');
+  return VALID_TABS.includes(hash) ? hash : 'overview';
+}
+
 export default function AdminDashboard() {
   const router = useRouter();
   const { user, loading } = useAuth();
+  // Khởi tạo tab từ URL hash (giữ nguyên tab sau F5)
   const [activeTab, setActiveTab] = useState('overview');
   const [selectedCourseIdFromOverview, setSelectedCourseIdFromOverview] = useState(null);
+
+  // Đọc hash khi component mount (sau khi window available)
+  useEffect(() => {
+    setActiveTab(getTabFromHash());
+  }, []);
+
+  // Cập nhật URL hash mỗi khi đổi tab
+  const handleSetActiveTab = (tab) => {
+    setActiveTab(tab);
+    if (typeof window !== 'undefined') {
+      window.location.hash = tab;
+    }
+  };
+
+  // Lắng nghe sự kiện back/forward của trình duyệt (popstate)
+  useEffect(() => {
+    const onHashChange = () => {
+      setActiveTab(getTabFromHash());
+    };
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, []);
 
   // Guard: chuyển hướng nếu chưa đăng nhập
   useEffect(() => {
@@ -38,16 +69,17 @@ export default function AdminDashboard() {
 
   const handleSelectCourseFromOverview = (courseId) => {
     setSelectedCourseIdFromOverview(courseId);
+    handleSetActiveTab('courses');
   };
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
-      <Header activeTab={activeTab} setActiveTab={setActiveTab} />
+      <Header activeTab={activeTab} setActiveTab={handleSetActiveTab} />
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {activeTab === 'overview' && (
           <OverviewTab
-            setActiveTab={setActiveTab}
+            setActiveTab={handleSetActiveTab}
             onSelectCourse={handleSelectCourseFromOverview}
           />
         )}
