@@ -449,7 +449,12 @@ export default function StudentPortal({ onSwitchToAdmin }) {
   const handleSubmitQuiz = (questions) => {
     let correct = 0;
     questions.forEach((q, idx) => {
-      if (quizAnswers[idx] === q.correct_index || quizAnswers[idx] === q.answer) {
+      let correctIdx = q.correct_index !== undefined ? q.correct_index : q.answer;
+      if (correctIdx === undefined && Array.isArray(q.options)) {
+        const found = q.options.findIndex(o => (typeof o === 'object' ? !!o.is_correct : false));
+        if (found !== -1) correctIdx = found;
+      }
+      if (quizAnswers[idx] !== undefined && quizAnswers[idx] === correctIdx) {
         correct++;
       }
     });
@@ -853,8 +858,27 @@ export default function StudentPortal({ onSwitchToAdmin }) {
 
                   <div className="space-y-3">
                     {(selectedCourse.chapters || []).map((ch, chIdx) => {
+                      let lessons = ch.lessons || [];
+                      let quiz = ch.quiz;
+                      if (!quiz && typeof window !== 'undefined' && selectedCourse?.id) {
+                        try {
+                          const cached = localStorage.getItem(`driveedu_quiz_${selectedCourse.id}_${ch.id}`);
+                          if (cached) quiz = JSON.parse(cached);
+                        } catch (e) {}
+                      }
+                      if (quiz && !lessons.some(l => l.type === 'quiz')) {
+                        lessons = [
+                          ...lessons,
+                          {
+                            id: `quiz-${ch.id}`,
+                            title: quiz.title || 'Bài Kiểm Tra Cuối Chương',
+                            type: 'quiz',
+                            duration_minutes: Math.max(10, (quiz.questions || []).length * 2),
+                            quiz_questions: quiz.questions
+                          }
+                        ];
+                      }
                       const isExpanded = !!expandedChapters[ch.id];
-                      const lessons = ch.lessons || [];
                       const progress = chapterProgress[ch.id] || { studiedSeconds: 0, isCompleted: false };
                       const totalDurationSec = (ch.duration_minutes || 30) * 60;
                       const minPct = ch.min_completion_pct || 80;
@@ -1247,7 +1271,7 @@ export default function StudentPortal({ onSwitchToAdmin }) {
                                               }`}>
                                                 {String.fromCharCode(65 + optIdx)}
                                               </span>
-                                              <span>{opt}</span>
+                                              <span>{typeof opt === 'object' ? (opt.text || '') : String(opt || '')}</span>
                                             </button>
                                           );
                                         })}

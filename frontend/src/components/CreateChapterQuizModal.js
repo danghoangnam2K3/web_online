@@ -27,11 +27,40 @@ const EMPTY_QUESTION = () => ({
   expanded: true
 });
 
-export default function CreateChapterQuizModal({ isOpen, onClose, onSaveQuiz, chapterTitle }) {
+export default function CreateChapterQuizModal({ isOpen, onClose, onSaveQuiz, chapterTitle, initialQuiz }) {
   const [quizTitle, setQuizTitle] = useState('');
   const [globalShuffle, setGlobalShuffle] = useState(false); // trộn đáp án toàn bộ
   const [questions, setQuestions] = useState([EMPTY_QUESTION()]);
   const [saving, setSaving] = useState(false);
+
+  // Điền dữ liệu bài kiểm tra nếu có (chế độ sửa)
+  React.useEffect(() => {
+    if (isOpen && initialQuiz) {
+      setQuizTitle(initialQuiz.title || '');
+      setGlobalShuffle(!!initialQuiz.shuffle_answers);
+      if (Array.isArray(initialQuiz.questions) && initialQuiz.questions.length > 0) {
+        setQuestions(
+          initialQuiz.questions.map((q, idx) => ({
+            id: Date.now() + idx + Math.random(),
+            question: q.question || '',
+            shuffleAnswers: !!q.shuffle_answers,
+            expanded: idx === 0,
+            options: (q.options || []).map((opt, oIdx) => ({
+              id: Date.now() + oIdx + Math.random(),
+              text: typeof opt === 'object' ? (opt.text || '') : String(opt || ''),
+              isCorrect: typeof opt === 'object' ? !!opt.is_correct : (oIdx === q.correct_index)
+            }))
+          }))
+        );
+      } else {
+        setQuestions([EMPTY_QUESTION()]);
+      }
+    } else if (isOpen && !initialQuiz) {
+      setQuizTitle('');
+      setGlobalShuffle(false);
+      setQuestions([EMPTY_QUESTION()]);
+    }
+  }, [isOpen, initialQuiz]);
 
   if (!isOpen) return null;
 

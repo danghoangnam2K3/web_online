@@ -38,7 +38,20 @@ exports.getAllCourses = async (req, res) => {
           .select('*, lessons(*)')
           .eq('course_id', course.id)
           .order('order_index', { ascending: true });
-        if (chData) chapters = chData;
+        if (chData) {
+          chapters = chData.map(ch => {
+            const quizLesson = (ch.lessons || []).find(l => l.type === 'quiz');
+            let quiz = null;
+            if (quizLesson) {
+              try {
+                quiz = JSON.parse(quizLesson.content_text || '{}');
+              } catch (e) {
+                quiz = { title: quizLesson.title, questions: quizLesson.quiz_questions || [] };
+              }
+            }
+            return { ...ch, quiz };
+          });
+        }
       } catch (e) {
         console.warn('Lỗi lấy chapters cho khóa học:', course.id, e.message);
       }
@@ -94,10 +107,22 @@ exports.getCourseById = async (req, res) => {
       ...data,
       chapters: (data.chapters || [])
         .sort((a, b) => a.order_index - b.order_index)
-        .map(ch => ({
-          ...ch,
-          lessons: (ch.lessons || []).sort((a, b) => (a.order_index || 0) - (b.order_index || 0))
-        })),
+        .map(ch => {
+          const quizLesson = (ch.lessons || []).find(l => l.type === 'quiz');
+          let quiz = null;
+          if (quizLesson) {
+            try {
+              quiz = JSON.parse(quizLesson.content_text || '{}');
+            } catch (e) {
+              quiz = { title: quizLesson.title, questions: quizLesson.quiz_questions || [] };
+            }
+          }
+          return {
+            ...ch,
+            quiz,
+            lessons: (ch.lessons || []).sort((a, b) => (a.order_index || 0) - (b.order_index || 0))
+          };
+        }),
       enrolled_student_ids: (data.enrollments || []).map(e => e.student_id),
       enrollments: undefined
     };
@@ -254,6 +279,145 @@ exports.updateChapterRules = async (req, res) => {
     }
 
     return res.json({ success: true, message: 'Đã cập nhật quy định hoàn thành chương!' });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ─── Lưu Bài Kiểm Tra Cho Chương (Tạo mới hoặc Cập nhật) ────────────────────
+exports.saveChapterQuiz = async (req, res) => {
+  try {
+    checkSupabase();
+    const { id: courseId, chapterId } = req.params;
+    const { title, questions, shuffle_answers } = req.body;
+
+    if (!questions || !Array.isArray(questions) || questions.length === 0) {
+      return res.status(400).json({ success: false, message: 'Bài kiểm tra phải có ít nhất 1 câu hỏi!' });
+    }
+
+    const quizData = {
+      title: title || 'Bài Kiểm Tra Chương',
+      shuffle_answers: !!shuffle_answers,
+      questions
+    };
+
+    // 1. Kiểm tra xem chương này đã có lesson dạng quiz chưa
+    const { data: existingLessons } = await supabase
+      .from('lessons')
+      .select('*')
+      .eq('chapter_id', chapterId)
+      .eq('type', 'quiz');
+
+    let savedData = null;
+
+    if (existingLessons && existingLessons.length > 0) {
+      const quizLessonId = existingLessons[0].id;
+      const updatePayload = {
+        title: quizData.title,
+        content_text: JSON.stringify(quizData),
+        duration_minutes: Math.max(10, questions.length * 2)
+      };
+
+      try {
+        const { data, error } = await supabase
+          .from('lessons')
+          .update({ ...updatePayload, quiz_questions: questions })
+          .eq('id', quizLessonId)
+          .select()
+          .single();
+        if (!error && data) savedData = data;
+      } catch (e) {}
+
+      if (!savedData) {
+        const { data, error } = await supabase
+          .from('lessons')
+          .update(updatePayload)
+          .eq('id', quizLessonId)
+          .select()
+          .single();
+        if (error) throw new Error(error.message);
+        savedData = data;
+      }
+    } else {
+      const insertPayload = {
+        chapter_id: chapterId,
+        title: quizData.title,
+        type: 'quiz',
+        content_text: JSON.stringify(quizData),
+        duration_minutes: Math.max(10, questions.length * 2),
+        min_watch_pct: 100,
+        order_index: 999
+      };
+
+      try {
+        const { data, error } = await supabase
+          .from('lessons')
+          .insert([{ ...insertPayload, quiz_questions: questions }])
+          .select()
+          .single();
+        if (!error && data) savedData = data;
+      } catch (e) {}
+
+      if (!savedData) {
+        const { data, error } = await supabase
+          .from('lessons')
+          .insert([insertPayload])
+          .select()
+          .single();
+        if (error) throw new Error(error.message);
+        savedData = data;
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Lưu bài kiểm tra chương thành công!',
+      data: {
+        ...quizData,
+        id: savedData?.id,
+        chapter_id: chapterId
+      }
+    });
+  } catch (err) {
+    console.error('Lỗi saveChapterQuiz:', err.message);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ─── Lấy Bài Kiểm Tra Của Chương ─────────────────────────────────────────────
+exports.getChapterQuiz = async (req, res) => {
+  try {
+    checkSupabase();
+    const { chapterId } = req.params;
+
+    const { data: lessons, error } = await supabase
+      .from('lessons')
+      .select('*')
+      .eq('chapter_id', chapterId)
+      .eq('type', 'quiz')
+      .limit(1);
+
+    if (error) throw new Error(error.message);
+
+    if (!lessons || lessons.length === 0) {
+      return res.json({ success: true, data: null });
+    }
+
+    const quizLesson = lessons[0];
+    let quizData = null;
+    if (quizLesson.content_text) {
+      try {
+        quizData = JSON.parse(quizLesson.content_text);
+      } catch (e) {}
+    }
+    if (!quizData) {
+      quizData = {
+        title: quizLesson.title,
+        questions: quizLesson.quiz_questions || []
+      };
+    }
+
+    return res.json({ success: true, data: { ...quizData, id: quizLesson.id } });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
   }

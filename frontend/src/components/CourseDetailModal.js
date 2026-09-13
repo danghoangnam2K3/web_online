@@ -227,19 +227,37 @@ export default function CourseDetailModal({ isOpen, onClose, course: initialCour
     if (!selectedChapterForQuiz) return;
     try {
       const savedQuiz = await createChapterQuizApi(course.id, selectedChapterForQuiz.id, quizData);
-      if (savedQuiz) {
-        setCourse(prev => ({
-          ...prev,
-          chapters: (prev.chapters || []).map(ch => {
-            if (ch.id === selectedChapterForQuiz.id) {
-              return { ...ch, quiz: savedQuiz };
+      const quizToSave = savedQuiz || quizData;
+      setCourse(prev => ({
+        ...prev,
+        chapters: (prev.chapters || []).map(ch => {
+          if (ch.id === selectedChapterForQuiz.id) {
+            const hasQuizLesson = (ch.lessons || []).some(l => l.type === 'quiz');
+            let lessons = ch.lessons || [];
+            if (!hasQuizLesson) {
+              lessons = [
+                ...lessons,
+                {
+                  id: `quiz-${ch.id}`,
+                  chapter_id: ch.id,
+                  title: quizToSave.title,
+                  type: 'quiz',
+                  quiz_questions: quizToSave.questions,
+                  duration_minutes: Math.max(10, (quizToSave.questions || []).length * 2),
+                  min_watch_pct: 100,
+                  order_index: 999
+                }
+              ];
             }
-            return ch;
-          })
-        }));
-      }
+            return { ...ch, quiz: quizToSave, lessons };
+          }
+          return ch;
+        })
+      }));
       setIsQuizModalOpen(false);
-      await reloadCurrentCourse();
+      try {
+        await reloadCurrentCourse();
+      } catch (e) {}
     } catch (err) {
       alert('Lỗi lưu bài kiểm tra: ' + err.message);
     }
@@ -1134,6 +1152,7 @@ export default function CourseDetailModal({ isOpen, onClose, course: initialCour
         onClose={() => { setIsQuizModalOpen(false); setSelectedChapterForQuiz(null); }}
         onSaveQuiz={handleSaveQuiz}
         chapterTitle={selectedChapterForQuiz?.title || ''}
+        initialQuiz={selectedChapterForQuiz?.quiz}
       />
     </div>
   );

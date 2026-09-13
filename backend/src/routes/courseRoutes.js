@@ -39,6 +39,10 @@ router.delete('/:id/chapters/:chapterId/lessons/:lessonId', courseController.del
 // Bước 3: Tạo điều kiện hoàn thành Chương
 router.put('/:id/chapters/:chapterId/rules', courseController.updateChapterRules);
 
+// Quản lý Bài Kiểm Tra Chương
+router.post('/:id/chapters/:chapterId/quiz', courseController.saveChapterQuiz);
+router.get('/:id/chapters/:chapterId/quiz', courseController.getChapterQuiz);
+
 // Bước 4: Add học viên chưa add từ trang Học Viên vào khóa
 router.post('/:id/enroll', courseController.enrollStudents);
 
