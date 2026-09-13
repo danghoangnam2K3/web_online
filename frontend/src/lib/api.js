@@ -78,6 +78,41 @@ export async function createLessonApi(courseId, chapterId, lessonData) {
   });
 }
 
+export function uploadVideoApi(file, onProgress) {
+  return new Promise((resolve, reject) => {
+    const formData = new FormData();
+    formData.append('video', file);
+
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${BASE_URL}/courses/upload-video`);
+
+    if (xhr.upload && onProgress) {
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) {
+          const pct = Math.round((e.loaded / e.total) * 100);
+          onProgress(pct);
+        }
+      };
+    }
+
+    xhr.onload = () => {
+      try {
+        const json = JSON.parse(xhr.responseText);
+        if (xhr.status >= 200 && xhr.status < 300 && json.success) {
+          resolve(json.data);
+        } else {
+          reject(new Error(json.message || 'Lỗi tải video lên máy chủ'));
+        }
+      } catch (err) {
+        reject(new Error('Phản hồi từ máy chủ không hợp lệ'));
+      }
+    };
+
+    xhr.onerror = () => reject(new Error('Lỗi kết nối mạng khi tải video!'));
+    xhr.send(formData);
+  });
+}
+
 export async function createChapterQuizApi(courseId, chapterId, quizData) {
   // quizData: { title, questions: [{question, options, answer}] }
   return apiFetch(`/courses/${courseId}/chapters/${chapterId}/quiz`, {

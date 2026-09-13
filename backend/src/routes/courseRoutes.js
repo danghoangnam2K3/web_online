@@ -1,6 +1,15 @@
 const express = require('express');
 const router = express.Router();
+const multer = require('multer');
 const courseController = require('../controllers/courseController');
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 100 * 1024 * 1024 } // 100MB
+});
+
+// Upload video từ máy tính lên Supabase Storage
+router.post('/upload-video', upload.single('video'), courseController.uploadVideo);
 
 // Lấy danh sách & chi tiết khóa học
 router.get('/', courseController.getAllCourses);

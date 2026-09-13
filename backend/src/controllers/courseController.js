@@ -424,3 +424,70 @@ exports.updateCourse = async (req, res) => {
     return res.status(500).json({ success: false, message: err.message });
   }
 };
+
+// ─── Tải video bài giảng từ máy tính lên Supabase Storage ────────────────────
+exports.uploadVideo = async (req, res) => {
+  try {
+    checkSupabase();
+
+    let buffer = null;
+    let fileName = '';
+    let mimeType = 'video/mp4';
+
+    if (req.file) {
+      buffer = req.file.buffer;
+      fileName = req.file.originalname;
+      mimeType = req.file.mimetype;
+    } else if (req.body?.base64 && req.body?.fileName) {
+      const base64Data = req.body.base64
+        .replace(/^data:video\/\w+;base64,/, '')
+        .replace(/^data:application\/octet-stream;base64,/, '');
+      buffer = Buffer.from(base64Data, 'base64');
+      fileName = req.body.fileName;
+      mimeType = req.body.mimeType || 'video/mp4';
+    } else {
+      return res.status(400).json({ success: false, message: 'Vui lòng chọn file video để tải lên!' });
+    }
+
+    if (!buffer || buffer.length === 0) {
+      return res.status(400).json({ success: false, message: 'Dữ liệu video trống!' });
+    }
+
+    const cleanFileName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const filePath = `videos/${Date.now()}_${cleanFileName}`;
+
+    // Kiểm tra / Tạo bucket 'course-videos' nếu chưa có
+    try {
+      const { data: buckets } = await supabase.storage.listBuckets();
+      const hasBucket = buckets?.some(b => b.name === 'course-videos');
+      if (!hasBucket) {
+        await supabase.storage.createBucket('course-videos', { public: true });
+      }
+    } catch (bErr) {
+      console.warn('Check course-videos bucket warning:', bErr.message);
+    }
+
+    const { data, error } = await supabase.storage
+      .from('course-videos')
+      .upload(filePath, buffer, {
+        contentType: mimeType || 'video/mp4',
+        upsert: true
+      });
+
+    if (error) {
+      console.error('Supabase Storage video upload error:', error.message);
+      return res.status(400).json({ success: false, message: 'Lỗi tải video lên Supabase Storage: ' + error.message });
+    }
+
+    const { data: urlData } = supabase.storage.from('course-videos').getPublicUrl(filePath);
+
+    return res.json({
+      success: true,
+      message: 'Tải video thành công!',
+      data: { url: urlData.publicUrl, fileName }
+    });
+  } catch (err) {
+    console.error('uploadVideo error:', err.message);
+    return res.status(500).json({ success: false, message: 'Lỗi xử lý video: ' + err.message });
+  }
+};
