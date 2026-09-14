@@ -1,39 +1,61 @@
 const BASE_URL = 'https://web-online-wbn5.onrender.com/api';
 
-// Helper đồng bộ bài kiểm tra từ local cache vào khóa học
-function mergeLocalQuizzesToCourse(course) {
-  if (!course || !course.chapters || typeof window === 'undefined') return course;
+// Helper chuẩn hóa dữ liệu khóa học trực tiếp từ CSDL Supabase
+function normalizeCourseFromDatabase(course) {
+  if (!course || !course.chapters) return course;
   try {
     const updatedChapters = course.chapters.map(ch => {
-      let quiz = ch.quiz;
-      if (!quiz) {
-        const localKey = `driveedu_quiz_${course.id}_${ch.id}`;
-        const cached = localStorage.getItem(localKey);
-        if (cached) {
-          try { quiz = JSON.parse(cached); } catch (e) {}
-        }
-      }
-      if (quiz) {
-        const hasQuizLesson = (ch.lessons || []).some(l => l.type === 'quiz');
-        let lessons = ch.lessons || [];
-        if (!hasQuizLesson && quiz.questions && quiz.questions.length > 0) {
-          lessons = [
-            ...lessons,
-            {
-              id: `quiz-${ch.id}`,
-              chapter_id: ch.id,
-              title: quiz.title || 'Bài Kiểm Tra Chương',
-              type: 'quiz',
-              quiz_questions: quiz.questions,
-              duration_minutes: Math.max(10, quiz.questions.length * 2),
-              min_watch_pct: 100,
-              order_index: 999
+      const quiz = ch.quiz || null;
+      const hasQuizLesson = (ch.lessons || []).some(l => l.type === 'quiz');
+      let lessons = ch.lessons || [];
+
+      if (hasQuizLesson) {
+        lessons = lessons.map(l => {
+          if (l.type === 'quiz') {
+            let qQuestions = (Array.isArray(l.quiz_questions) && l.quiz_questions.length > 0)
+              ? l.quiz_questions
+              : (Array.isArray(l.questions) && l.questions.length > 0 ? l.questions : null);
+
+            if (!qQuestions && l.content_text) {
+              try {
+                const parsed = JSON.parse(l.content_text);
+                if (Array.isArray(parsed?.questions) && parsed.questions.length > 0) {
+                  qQuestions = parsed.questions;
+                }
+              } catch (e) {}
             }
-          ];
-        }
-        return { ...ch, quiz, lessons };
+
+            if (!qQuestions && quiz && Array.isArray(quiz.questions) && quiz.questions.length > 0) {
+              qQuestions = quiz.questions;
+            }
+
+            return {
+              ...l,
+              title: quiz?.title || l.title,
+              quiz_questions: qQuestions || [],
+              questions: qQuestions || []
+            };
+          }
+          return l;
+        });
+      } else if (quiz && Array.isArray(quiz.questions) && quiz.questions.length > 0) {
+        lessons = [
+          ...lessons,
+          {
+            id: `quiz-${ch.id}`,
+            chapter_id: ch.id,
+            title: quiz.title || 'Bài Kiểm Tra Chương',
+            type: 'quiz',
+            quiz_questions: quiz.questions,
+            questions: quiz.questions,
+            duration_minutes: Math.max(10, quiz.questions.length * 2),
+            min_watch_pct: 100,
+            order_index: 999
+          }
+        ];
       }
-      return ch;
+
+      return { ...ch, quiz, lessons };
     });
     return { ...course, chapters: updatedChapters };
   } catch (e) {
@@ -83,7 +105,7 @@ export async function fetchCourses(search = '', tier = 'ALL') {
   try {
     const courses = await apiFetch(`/courses?${query.toString()}`);
     if (Array.isArray(courses)) {
-      return courses.map(c => mergeLocalQuizzesToCourse(c));
+      return courses.map(c => normalizeCourseFromDatabase(c));
     }
     return courses;
   } catch (err) {
@@ -94,7 +116,7 @@ export async function fetchCourses(search = '', tier = 'ALL') {
 export async function fetchCourseById(courseId) {
   try {
     const course = await apiFetch(`/courses/${courseId}`);
-    return mergeLocalQuizzesToCourse(course);
+    return normalizeCourseFromDatabase(course);
   } catch (err) {
     throw err;
   }
@@ -183,28 +205,12 @@ export function uploadVideoApi(file, onProgress) {
 }
 
 export async function createChapterQuizApi(courseId, chapterId, quizData) {
-  // quizData: { title, shuffle_answers, questions: [{question, options, order_index}] }
-  const localKey = `driveedu_quiz_${courseId}_${chapterId}`;
-  
-  // 1. Lưu ngay vào local cache để dữ liệu không bao giờ bị mất
-  if (typeof window !== 'undefined') {
-    try {
-      localStorage.setItem(localKey, JSON.stringify(quizData));
-    } catch (e) {}
-  }
-
-  // 2. Đồng bộ lên máy chủ backend
-  try {
-    const res = await apiFetch(`/courses/${courseId}/chapters/${chapterId}/quiz`, {
-      method: 'POST',
-      body: JSON.stringify(quizData)
-    });
-    return res;
-  } catch (err) {
-    console.warn('createChapterQuizApi cảnh báo đồng bộ backend (đã lưu cache local):', err.message);
-    // Trả về dữ liệu bài kiểm tra để giao diện tạo bài kiểm tra luôn thành công trơn tru
-    return quizData;
-  }
+  // Lưu trực tiếp vào CSDL Supabase thông qua backend API
+  const res = await apiFetch(`/courses/${courseId}/chapters/${chapterId}/quiz`, {
+    method: 'POST',
+    body: JSON.stringify(quizData)
+  });
+  return res;
 }
 
 export async function updateChapterRulesApi(courseId, chapterId, rules) {

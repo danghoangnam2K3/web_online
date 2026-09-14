@@ -305,11 +305,21 @@ export default function CourseDetailModal({ isOpen, onClose, course: initialCour
                   title: quizToSave.title,
                   type: 'quiz',
                   quiz_questions: quizToSave.questions,
+                  questions: quizToSave.questions,
                   duration_minutes: Math.max(10, (quizToSave.questions || []).length * 2),
                   min_watch_pct: 100,
                   order_index: 999
                 }
               ];
+            } else {
+              lessons = lessons.map(l => l.type === 'quiz' ? {
+                ...l,
+                title: quizToSave.title || l.title,
+                quiz_questions: quizToSave.questions,
+                questions: quizToSave.questions,
+                content_text: JSON.stringify(quizToSave),
+                duration_minutes: Math.max(10, (quizToSave.questions || []).length * 2)
+              } : l);
             }
             return { ...ch, quiz: quizToSave, lessons };
           }
@@ -325,22 +335,15 @@ export default function CourseDetailModal({ isOpen, onClose, course: initialCour
     }
   };
 
-  // ── Helper: Lấy dữ liệu bài kiểm tra của chương ─────────────────────
+  // ── Helper: Lấy dữ liệu bài kiểm tra của chương trực tiếp từ CSDL Supabase ──────
   const getChapterQuiz = (chapter) => {
     if (!chapter) return null;
     if (chapter.quiz && (chapter.quiz.questions?.length > 0 || chapter.quiz.title)) {
       return chapter.quiz;
     }
     const quizLesson = (chapter.lessons || []).find(l => l.type === 'quiz');
-    if (!quizLesson) {
-      if (typeof window !== 'undefined' && course?.id) {
-        try {
-          const cached = localStorage.getItem(`driveedu_quiz_${course.id}_${chapter.id}`);
-          if (cached) return JSON.parse(cached);
-        } catch (e) {}
-      }
-      return null;
-    }
+    if (!quizLesson) return null;
+
     if (quizLesson.content_text) {
       try {
         const parsed = JSON.parse(quizLesson.content_text);
@@ -361,18 +364,9 @@ export default function CourseDetailModal({ isOpen, onClose, course: initialCour
     if (!window.confirm(`Bạn có chắc chắn muốn xóa bài kiểm tra "${title}" khỏi chương "${ch.title}" không?`)) return;
 
     try {
-      if (typeof window !== 'undefined' && course?.id) {
-        try {
-          localStorage.removeItem(`driveedu_quiz_${course.id}_${ch.id}`);
-          localStorage.removeItem(`driveedu_quiz_chapter_${ch.id}`);
-        } catch (e) {}
-      }
-
       const quizLesson = (ch.lessons || []).find(l => l.type === 'quiz');
       if (quizLesson && quizLesson.id && !String(quizLesson.id).startsWith('quiz-')) {
-        try {
-          await deleteLessonApi(course.id, ch.id, quizLesson.id);
-        } catch (e) {}
+        await deleteLessonApi(course.id, ch.id, quizLesson.id);
       }
 
       setCourse(prev => ({

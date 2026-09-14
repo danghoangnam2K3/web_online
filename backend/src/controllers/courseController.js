@@ -48,8 +48,26 @@ exports.getAllCourses = async (req, res) => {
               } catch (e) {
                 quiz = { title: quizLesson.title, questions: quizLesson.quiz_questions || [] };
               }
+              if (!quiz || !Array.isArray(quiz.questions) || quiz.questions.length === 0) {
+                if (Array.isArray(quizLesson.quiz_questions) && quizLesson.quiz_questions.length > 0) {
+                  quiz = { ...(quiz || {}), title: quizLesson.title, questions: quizLesson.quiz_questions };
+                }
+              }
             }
-            return { ...ch, quiz };
+            const normalizedLessons = (ch.lessons || []).map(l => {
+              if (l.type === 'quiz') {
+                const questions = (quiz && Array.isArray(quiz.questions) && quiz.questions.length > 0)
+                  ? quiz.questions
+                  : (Array.isArray(l.quiz_questions) ? l.quiz_questions : []);
+                return {
+                  ...l,
+                  quiz_questions: questions,
+                  questions: questions
+                };
+              }
+              return l;
+            });
+            return { ...ch, quiz, lessons: normalizedLessons };
           });
         }
       } catch (e) {
@@ -116,11 +134,31 @@ exports.getCourseById = async (req, res) => {
             } catch (e) {
               quiz = { title: quizLesson.title, questions: quizLesson.quiz_questions || [] };
             }
+            if (!quiz || !Array.isArray(quiz.questions) || quiz.questions.length === 0) {
+              if (Array.isArray(quizLesson.quiz_questions) && quizLesson.quiz_questions.length > 0) {
+                quiz = { ...(quiz || {}), title: quizLesson.title, questions: quizLesson.quiz_questions };
+              }
+            }
           }
+          const sortedLessons = (ch.lessons || [])
+            .sort((a, b) => (a.order_index || 0) - (b.order_index || 0))
+            .map(l => {
+              if (l.type === 'quiz') {
+                const questions = (quiz && Array.isArray(quiz.questions) && quiz.questions.length > 0)
+                  ? quiz.questions
+                  : (Array.isArray(l.quiz_questions) ? l.quiz_questions : []);
+                return {
+                  ...l,
+                  quiz_questions: questions,
+                  questions: questions
+                };
+              }
+              return l;
+            });
           return {
             ...ch,
             quiz,
-            lessons: (ch.lessons || []).sort((a, b) => (a.order_index || 0) - (b.order_index || 0))
+            lessons: sortedLessons
           };
         }),
       enrolled_student_ids: (data.enrollments || []).map(e => e.student_id),
@@ -301,12 +339,16 @@ exports.saveChapterQuiz = async (req, res) => {
       questions
     };
 
-    // 1. Kiểm tra xem chương này đã có lesson dạng quiz chưa
-    const { data: existingLessons } = await supabase
+    // 1. Kiểm tra xem chương này đã có lesson dạng quiz chưa trong CSDL Supabase
+    const { data: existingLessons, error: findError } = await supabase
       .from('lessons')
       .select('*')
       .eq('chapter_id', chapterId)
       .eq('type', 'quiz');
+
+    if (findError) {
+      throw new Error(`Lỗi truy vấn CSDL Supabase: ${findError.message}`);
+    }
 
     let savedData = null;
 
@@ -315,27 +357,32 @@ exports.saveChapterQuiz = async (req, res) => {
       const updatePayload = {
         title: quizData.title,
         content_text: JSON.stringify(quizData),
-        duration_minutes: Math.max(10, questions.length * 2)
+        duration_minutes: Math.max(10, questions.length * 2),
+        quiz_questions: questions
       };
 
-      try {
-        const { data, error } = await supabase
-          .from('lessons')
-          .update({ ...updatePayload, quiz_questions: questions })
-          .eq('id', quizLessonId)
-          .select()
-          .single();
-        if (!error && data) savedData = data;
-      } catch (e) {}
+      const { data, error } = await supabase
+        .from('lessons')
+        .update(updatePayload)
+        .eq('id', quizLessonId)
+        .select()
+        .single();
 
-      if (!savedData) {
-        const { data, error } = await supabase
+      if (error) {
+        console.warn('Cập nhật quiz_questions trực tiếp gặp lỗi, thử cập nhật kèm content_text:', error.message);
+        const { data: fallbackData, error: fallbackError } = await supabase
           .from('lessons')
-          .update(updatePayload)
+          .update({
+            title: quizData.title,
+            content_text: JSON.stringify(quizData),
+            duration_minutes: Math.max(10, questions.length * 2)
+          })
           .eq('id', quizLessonId)
           .select()
           .single();
-        if (error) throw new Error(error.message);
+        if (fallbackError) throw new Error(`Không thể cập nhật bài kiểm tra vào CSDL Supabase: ${fallbackError.message}`);
+        savedData = fallbackData;
+      } else {
         savedData = data;
       }
     } else {
@@ -346,32 +393,41 @@ exports.saveChapterQuiz = async (req, res) => {
         content_text: JSON.stringify(quizData),
         duration_minutes: Math.max(10, questions.length * 2),
         min_watch_pct: 100,
-        order_index: 999
+        order_index: 999,
+        quiz_questions: questions
       };
 
-      try {
-        const { data, error } = await supabase
-          .from('lessons')
-          .insert([{ ...insertPayload, quiz_questions: questions }])
-          .select()
-          .single();
-        if (!error && data) savedData = data;
-      } catch (e) {}
+      const { data, error } = await supabase
+        .from('lessons')
+        .insert([insertPayload])
+        .select()
+        .single();
 
-      if (!savedData) {
-        const { data, error } = await supabase
+      if (error) {
+        console.warn('Thêm quiz_questions trực tiếp gặp lỗi, thử thêm qua content_text:', error.message);
+        const { data: fallbackData, error: fallbackError } = await supabase
           .from('lessons')
-          .insert([insertPayload])
+          .insert([{
+            chapter_id: chapterId,
+            title: quizData.title,
+            type: 'quiz',
+            content_text: JSON.stringify(quizData),
+            duration_minutes: Math.max(10, questions.length * 2),
+            min_watch_pct: 100,
+            order_index: 999
+          }])
           .select()
           .single();
-        if (error) throw new Error(error.message);
+        if (fallbackError) throw new Error(`Không thể tạo bài kiểm tra vào CSDL Supabase: ${fallbackError.message}`);
+        savedData = fallbackData;
+      } else {
         savedData = data;
       }
     }
 
     return res.status(200).json({
       success: true,
-      message: 'Lưu bài kiểm tra chương thành công!',
+      message: 'Lưu bài kiểm tra vào cơ sở dữ liệu Supabase thành công!',
       data: {
         ...quizData,
         id: savedData?.id,
@@ -384,7 +440,7 @@ exports.saveChapterQuiz = async (req, res) => {
   }
 };
 
-// ─── Lấy Bài Kiểm Tra Của Chương ─────────────────────────────────────────────
+// ─── Lấy Bài Kiểm Tra Của Chương Từ Supabase ──────────────────────────────────
 exports.getChapterQuiz = async (req, res) => {
   try {
     checkSupabase();
@@ -397,7 +453,7 @@ exports.getChapterQuiz = async (req, res) => {
       .eq('type', 'quiz')
       .limit(1);
 
-    if (error) throw new Error(error.message);
+    if (error) throw new Error(`Lỗi lấy bài kiểm tra từ Supabase: ${error.message}`);
 
     if (!lessons || lessons.length === 0) {
       return res.json({ success: true, data: null });
@@ -410,14 +466,20 @@ exports.getChapterQuiz = async (req, res) => {
         quizData = JSON.parse(quizLesson.content_text);
       } catch (e) {}
     }
-    if (!quizData) {
-      quizData = {
-        title: quizLesson.title,
-        questions: quizLesson.quiz_questions || []
-      };
-    }
+    const questions = (quizData && Array.isArray(quizData.questions) && quizData.questions.length > 0)
+      ? quizData.questions
+      : (Array.isArray(quizLesson.quiz_questions) ? quizLesson.quiz_questions : []);
 
-    return res.json({ success: true, data: { ...quizData, id: quizLesson.id } });
+    return res.json({
+      success: true,
+      data: {
+        title: quizData?.title || quizLesson.title,
+        shuffle_answers: !!quizData?.shuffle_answers,
+        questions,
+        id: quizLesson.id,
+        chapter_id: chapterId
+      }
+    });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
   }

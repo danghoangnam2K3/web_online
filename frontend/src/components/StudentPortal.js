@@ -4,7 +4,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../lib/AuthContext';
 import { fetchCourses, saveStudentProgressApi, fetchStudentProgressApi } from '../lib/api';
-import { initialCoursesData, initialStudentsData } from '../lib/mockData';
 import {
   BookOpen,
   User,
@@ -138,20 +137,16 @@ export default function StudentPortal({ onSwitchToAdmin }) {
   const [profileMsg, setProfileMsg] = useState({ type: '', text: '' });
   const [profileSaving, setProfileSaving] = useState(false);
 
-  // 1. Tải danh sách khóa học và hồ sơ học viên
+  // 1. Tải danh sách khóa học và hồ sơ học viên từ CSDL Supabase
   useEffect(() => {
     async function loadData() {
       setLoading(true);
       try {
         const coursesData = await fetchCourses();
-        if (coursesData && coursesData.length > 0) {
-          setAllCourses(coursesData);
-        } else {
-          setAllCourses(initialCoursesData);
-        }
+        setAllCourses(Array.isArray(coursesData) ? coursesData : []);
       } catch (err) {
-        console.warn('Dùng initialCoursesData offline:', err.message);
-        setAllCourses(initialCoursesData);
+        console.error('Lỗi tải danh sách khóa học từ máy chủ CSDL:', err.message);
+        setAllCourses([]);
       }
 
       // Lấy thông tin học viên chi tiết trực tiếp từ Supabase
@@ -174,16 +169,10 @@ export default function StudentPortal({ onSwitchToAdmin }) {
               } catch (e) {}
             }
           } else {
-            const found = initialStudentsData.find(s =>
-              (user.email && s.email === user.email) || (user.username && s.username === user.username) || s.id === user.id
-            );
-            setStudentProfile(found || user);
+            setStudentProfile(user);
           }
         } catch (e) {
-          const found = initialStudentsData.find(s =>
-            (user.email && s.email === user.email) || (user.username && s.username === user.username) || s.id === user.id
-          );
-          setStudentProfile(found || user);
+          setStudentProfile(user);
         }
       }
 
@@ -456,14 +445,71 @@ export default function StudentPortal({ onSwitchToAdmin }) {
     }));
   };
 
+  // Helper trích xuất danh sách câu hỏi trắc nghiệm của bài kiểm tra do Admin tạo
+  const getQuizQuestionsFromSource = (chapter, lesson) => {
+    if (!lesson) return [];
+    // 1. Kiểm tra trực tiếp trên lesson
+    if (Array.isArray(lesson.quiz_questions) && lesson.quiz_questions.length > 0) {
+      return lesson.quiz_questions;
+    }
+    if (Array.isArray(lesson.questions) && lesson.questions.length > 0) {
+      return lesson.questions;
+    }
+    // 2. Parse từ content_text của lesson
+    if (lesson.content_text) {
+      try {
+        const parsed = typeof lesson.content_text === 'string' ? JSON.parse(lesson.content_text) : lesson.content_text;
+        if (Array.isArray(parsed?.questions) && parsed.questions.length > 0) {
+          return parsed.questions;
+        }
+      } catch (e) {}
+    }
+    // 3. Kiểm tra chapter.quiz
+    if (chapter?.quiz && Array.isArray(chapter.quiz.questions) && chapter.quiz.questions.length > 0) {
+      return chapter.quiz.questions;
+    }
+    // 4. Kiểm tra trong selectedCourse.chapters
+    const chId = chapter?.id || currentLesson?.chapterId;
+    const foundCh = (selectedCourse?.chapters || []).find(c => c.id === chId);
+    if (foundCh?.quiz && Array.isArray(foundCh.quiz.questions) && foundCh.quiz.questions.length > 0) {
+      return foundCh.quiz.questions;
+    }
+    const foundQuizLesson = (foundCh?.lessons || []).find(l => l.type === 'quiz');
+    if (foundQuizLesson?.quiz_questions && Array.isArray(foundQuizLesson.quiz_questions) && foundQuizLesson.quiz_questions.length > 0) {
+      return foundQuizLesson.quiz_questions;
+    }
+    if (foundQuizLesson?.questions && Array.isArray(foundQuizLesson.questions) && foundQuizLesson.questions.length > 0) {
+      return foundQuizLesson.questions;
+    }
+    if (foundQuizLesson?.content_text) {
+      try {
+        const parsed = JSON.parse(foundQuizLesson.content_text);
+        if (Array.isArray(parsed?.questions) && parsed.questions.length > 0) {
+          return parsed.questions;
+        }
+      } catch (e) {}
+    }
+    return [];
+  };
+
   // 7. KHI HỌC VIÊN ẤN VÀO BÀI GIẢNG CỦA CHƯƠNG HỌC
   const handleSelectLesson = (chapter, lesson) => {
+    let preparedLesson = lesson;
+    if (lesson.type === 'quiz') {
+      const qQuestions = getQuizQuestionsFromSource(chapter, lesson);
+      preparedLesson = {
+        ...lesson,
+        quiz_questions: qQuestions,
+        questions: qQuestions
+      };
+    }
+
     setCurrentLesson({
       chapterId: chapter.id,
       chapterTitle: chapter.title,
       chapterMinPct: chapter.min_completion_pct || 80,
       chapterDurationMin: chapter.duration_minutes || 30,
-      lesson
+      lesson: preparedLesson
     });
     // Bắt đầu tính thời gian học cho chương
     setIsTimerRunning(true);
@@ -518,6 +564,7 @@ export default function StudentPortal({ onSwitchToAdmin }) {
 
   // 9. Nộp bài trắc nghiệm
   const handleSubmitQuiz = (questions) => {
+    if (!questions || questions.length === 0) return;
     let correct = 0;
     questions.forEach((q, idx) => {
       let correctIdx = q.correct_index !== undefined ? q.correct_index : q.answer;
@@ -930,14 +977,24 @@ export default function StudentPortal({ onSwitchToAdmin }) {
                   <div className="space-y-3">
                     {(selectedCourse.chapters || []).map((ch, chIdx) => {
                       let lessons = ch.lessons || [];
-                      let quiz = ch.quiz;
-                      if (!quiz && typeof window !== 'undefined' && selectedCourse?.id) {
-                        try {
-                          const cached = localStorage.getItem(`driveedu_quiz_${selectedCourse.id}_${ch.id}`);
-                          if (cached) quiz = JSON.parse(cached);
-                        } catch (e) {}
-                      }
-                      if (quiz && !lessons.some(l => l.type === 'quiz')) {
+                      const quiz = ch.quiz || null;
+
+                      const hasQuizLesson = lessons.some(l => l.type === 'quiz');
+                      if (hasQuizLesson) {
+                        lessons = lessons.map(l => {
+                          if (l.type === 'quiz') {
+                            const qQuestions = getQuizQuestionsFromSource(ch, l);
+                            return {
+                              ...l,
+                              title: quiz?.title || l.title,
+                              quiz_questions: qQuestions,
+                              questions: qQuestions,
+                              duration_minutes: l.duration_minutes || Math.max(10, (qQuestions.length || 1) * 2)
+                            };
+                          }
+                          return l;
+                        });
+                      } else if (quiz && quiz.questions && quiz.questions.length > 0) {
                         lessons = [
                           ...lessons,
                           {
@@ -945,7 +1002,8 @@ export default function StudentPortal({ onSwitchToAdmin }) {
                             title: quiz.title || 'Bài Kiểm Tra Cuối Chương',
                             type: 'quiz',
                             duration_minutes: Math.max(10, (quiz.questions || []).length * 2),
-                            quiz_questions: quiz.questions
+                            quiz_questions: quiz.questions,
+                            questions: quiz.questions
                           }
                         ];
                       }
@@ -1289,32 +1347,22 @@ export default function StudentPortal({ onSwitchToAdmin }) {
                       {currentLesson.lesson.type === 'quiz' && (
                         <div className="space-y-6">
                           {(() => {
-                            const sampleQuestions = [
-                              {
-                                question: 'Người tham gia giao thông đường bộ phải đi như thế nào là đúng quy tắc giao thông?',
-                                options: [
-                                  'Đi bên phải theo chiều đi của mình, đi đúng làn đường, phần đường quy định.',
-                                  'Đi bên trái theo chiều đi của mình.',
-                                  'Đi ở giữa đường nếu đường vắng.',
-                                  'Tùy ý lựa chọn làn đường thuận tiện.'
-                                ],
-                                correct_index: 0
-                              },
-                              {
-                                question: 'Biển nào báo hiệu cấm xe ô tô đi vào?',
-                                options: [
-                                  'Biển báo đường cấm',
-                                  'Biển cấm xe ô tô (P.103a)',
-                                  'Biển cấm xe tải',
-                                  'Biển cấm dừng và đỗ'
-                                ],
-                                correct_index: 1
-                              }
-                            ];
+                            const curCh = (selectedCourse?.chapters || []).find(c => c.id === currentLesson.chapterId);
+                            const questions = getQuizQuestionsFromSource(curCh, currentLesson.lesson);
 
-                            const questions = (currentLesson.lesson.quiz_questions && currentLesson.lesson.quiz_questions.length > 0)
-                              ? currentLesson.lesson.quiz_questions
-                              : sampleQuestions;
+                            if (!questions || questions.length === 0) {
+                              return (
+                                <div className="p-8 text-center bg-slate-50 border border-dashed border-slate-300 rounded-2xl">
+                                  <AlertCircle className="w-10 h-10 text-amber-500 mx-auto mb-3" />
+                                  <h4 className="text-sm font-bold text-slate-800">
+                                    Bài kiểm tra chưa có câu hỏi
+                                  </h4>
+                                  <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+                                    Quản trị viên chưa cập nhật câu hỏi cho bài kiểm tra này. Vui lòng liên hệ giảng viên hoặc quay lại sau.
+                                  </p>
+                                </div>
+                              );
+                            }
 
                             return (
                               <div className="space-y-5">
@@ -1325,17 +1373,18 @@ export default function StudentPortal({ onSwitchToAdmin }) {
                                         Câu {qIdx + 1}: {q.question}
                                       </p>
                                       <div className="space-y-2">
-                                        {q.options.map((opt, optIdx) => {
+                                        {(q.options || []).map((opt, optIdx) => {
                                           const isSelected = quizAnswers[qIdx] === optIdx;
                                           return (
                                             <button
                                               key={optIdx}
+                                              disabled={quizSubmitted}
                                               onClick={() => setQuizAnswers(prev => ({ ...prev, [qIdx]: optIdx }))}
                                               className={`w-full p-3 rounded-xl text-left text-xs font-medium transition-all flex items-center gap-3 ${
                                                 isSelected
                                                   ? 'bg-purple-600 text-white shadow-md'
                                                   : 'bg-white hover:bg-purple-50 text-slate-700 border border-slate-200'
-                                              }`}
+                                              } ${quizSubmitted ? 'cursor-default' : ''}`}
                                             >
                                               <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${
                                                 isSelected ? 'bg-white text-purple-700' : 'bg-slate-100 text-slate-600'
@@ -1351,7 +1400,7 @@ export default function StudentPortal({ onSwitchToAdmin }) {
                                   ))}
                                 </div>
 
-                                <div className="pt-2 flex items-center justify-between">
+                                <div className="pt-2 flex items-center justify-between gap-3 flex-wrap">
                                   {quizSubmitted ? (
                                     <div className="flex items-center gap-2 text-xs font-bold text-emerald-600">
                                       <CheckCircle2 className="w-5 h-5" />
@@ -1363,12 +1412,31 @@ export default function StudentPortal({ onSwitchToAdmin }) {
                                     <span className="text-xs text-slate-400">Chọn đầy đủ đáp án rồi nộp bài</span>
                                   )}
 
-                                  <button
-                                    onClick={() => handleSubmitQuiz(questions)}
-                                    className="px-5 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs shadow-md transition-all"
-                                  >
-                                    Nộp Bài Trắc Nghiệm
-                                  </button>
+                                  <div className="flex items-center gap-2">
+                                    {quizSubmitted && (
+                                      <button
+                                        onClick={() => {
+                                          setQuizSubmitted(false);
+                                          setQuizAnswers({});
+                                          setQuizScore(null);
+                                        }}
+                                        className="px-4 py-2 rounded-xl border border-purple-200 hover:bg-purple-50 text-purple-700 font-bold text-xs transition-all"
+                                      >
+                                        Làm Lại
+                                      </button>
+                                    )}
+                                    <button
+                                      onClick={() => handleSubmitQuiz(questions)}
+                                      disabled={quizSubmitted}
+                                      className={`px-5 py-2.5 rounded-xl text-white font-bold text-xs shadow-md transition-all ${
+                                        quizSubmitted
+                                          ? 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none'
+                                          : 'bg-purple-600 hover:bg-purple-700'
+                                      }`}
+                                    >
+                                      Nộp Bài Trắc Nghiệm
+                                    </button>
+                                  </div>
                                 </div>
                               </div>
                             );
