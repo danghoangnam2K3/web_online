@@ -19,6 +19,10 @@ router.put('/:id', studentController.updateStudent);
 router.post('/:id/study-progress', studentController.saveStudyProgress);
 router.get('/:id/study-progress', studentController.getStudyProgress);
 
+// Lưu & lấy kết quả bài kiểm tra trắc nghiệm
+router.post('/:id/quiz-attempt', studentController.saveQuizAttempt);
+router.get('/:id/quiz-attempts', studentController.getQuizAttempts);
+
 // Xóa học viên
 router.delete('/:id', studentController.deleteStudent);
 

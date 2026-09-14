@@ -358,18 +358,37 @@ export async function saveStudentProgressApi(studentId, progressData) {
     });
     return res;
   } catch (err) {
-    // Fallback lưu LocalStorage
-    try {
-      const key = `driveedu_progress_${studentId}_${progressData.chapter_id}`;
-      localStorage.setItem(key, JSON.stringify(progressData));
-    } catch (e) {}
-    return { success: true, offline: true, data: progressData };
+    console.warn('Lưu tiến độ học tập vào Supabase gặp lỗi mạng:', err.message);
+    return { success: false, message: err.message };
   }
 }
 
 export async function fetchStudentProgressApi(studentId) {
   try {
     return await apiFetch(`/students/${studentId}/study-progress`);
+  } catch (err) {
+    return [];
+  }
+}
+
+// ─── Student Quiz Attempts ───────────────────────────────────────────────────
+export async function saveQuizAttemptApi(studentId, attemptData) {
+  // attemptData: { course_id, chapter_id, lesson_id, score, total_questions, is_passed, answers }
+  try {
+    const res = await apiFetch(`/students/${studentId}/quiz-attempt`, {
+      method: 'POST',
+      body: JSON.stringify(attemptData)
+    });
+    return res;
+  } catch (err) {
+    console.warn('Lưu kết quả bài kiểm tra vào Supabase gặp lỗi:', err.message);
+    return { success: false, message: err.message };
+  }
+}
+
+export async function fetchQuizAttemptsApi(studentId) {
+  try {
+    return await apiFetch(`/students/${studentId}/quiz-attempts`);
   } catch (err) {
     return [];
   }

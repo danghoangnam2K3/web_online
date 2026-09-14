@@ -257,79 +257,118 @@ exports.uploadAvatar = async (req, res) => {
 };
 
 // ─── Lưu tiến độ & thời gian học tập của học viên ─────────────────────────
+function isUuid(val) {
+  if (!val || typeof val !== 'string') return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
+}
+
+// ─── Lưu Tiến Độ Học Tập Thời Gian Thực Vào Supabase ─────────────────────────
 exports.saveStudyProgress = async (req, res) => {
   try {
     checkSupabase();
     const { id: studentId } = req.params;
     const { course_id, chapter_id, lesson_id, seconds_added, total_studied_seconds, is_completed } = req.body;
 
-    if (!studentId || !chapter_id) {
-      return res.status(400).json({ success: false, message: 'Thiếu thông tin studentId hoặc chapter_id!' });
+    if (!studentId) {
+      return res.status(400).json({ success: false, message: 'Thiếu thông tin studentId!' });
     }
 
-    // Thử lưu vào bảng study_progress nếu tồn tại
+    // Chuẩn hóa studentId sang UUID hợp lệ từ bảng students
+    let resolvedStudentId = studentId;
+    if (!isUuid(studentId)) {
+      try {
+        const { data: s } = await supabase
+          .from('students')
+          .select('id')
+          .or(`username.eq.${studentId},email.eq.${studentId}`)
+          .limit(1)
+          .single();
+        if (s && s.id) resolvedStudentId = s.id;
+      } catch (e) {}
+    }
+
+    // Chuẩn hóa lesson_id sang UUID hợp lệ
+    let resolvedLessonId = lesson_id;
+    if (lesson_id && !isUuid(lesson_id) && chapter_id) {
+      try {
+        const { data: realLesson } = await supabase
+          .from('lessons')
+          .select('id')
+          .eq('chapter_id', chapter_id)
+          .eq('type', 'quiz')
+          .limit(1)
+          .single();
+        if (realLesson && realLesson.id) resolvedLessonId = realLesson.id;
+      } catch (e) {}
+    }
+
+    // 1. Lưu vào bảng study_progress trong CSDL Supabase
     try {
-      if (lesson_id) {
+      if (resolvedLessonId && isUuid(resolvedLessonId)) {
         const { data: existingProgress } = await supabase
           .from('study_progress')
           .select('*')
-          .eq('student_id', studentId)
-          .eq('lesson_id', lesson_id)
+          .eq('student_id', resolvedStudentId)
+          .eq('lesson_id', resolvedLessonId)
           .single();
 
         if (existingProgress) {
+          const newWatched = Math.max(
+            Number(existingProgress.watched_seconds) || 0,
+            Number(total_studied_seconds) || 0,
+            (Number(existingProgress.watched_seconds) || 0) + (Number(seconds_added) || 0)
+          );
           await supabase
             .from('study_progress')
             .update({
-              watched_seconds: (existingProgress.watched_seconds || 0) + (Number(seconds_added) || 0),
-              is_completed: is_completed !== undefined ? is_completed : existingProgress.is_completed,
+              watched_seconds: newWatched,
+              is_completed: is_completed !== undefined ? !!is_completed : existingProgress.is_completed,
               last_studied_at: new Date().toISOString()
             })
             .eq('id', existingProgress.id);
         } else {
+          const initialWatched = Math.max(Number(total_studied_seconds) || 0, Number(seconds_added) || 0);
           await supabase
             .from('study_progress')
             .insert([{
-              student_id: studentId,
-              lesson_id: lesson_id,
-              watched_seconds: Number(seconds_added) || 0,
+              student_id: resolvedStudentId,
+              lesson_id: resolvedLessonId,
+              watched_seconds: initialWatched,
               is_completed: !!is_completed,
               last_studied_at: new Date().toISOString()
             }]);
         }
       }
     } catch (tblErr) {
-      console.warn('Lưu study_progress warning (có thể bảng chưa tạo hoặc schema khác):', tblErr.message);
+      console.warn('Lưu study_progress warning:', tblErr.message);
     }
 
-    // Cập nhật % hoàn thành cho học viên trong bảng students nếu có
-    if (course_id) {
-      try {
-        const { data: student } = await supabase
-          .from('students')
-          .select('progress')
-          .eq('id', studentId)
-          .single();
+    // 2. Cập nhật % tiến độ tổng quát cho học viên trong bảng students
+    try {
+      if (resolvedStudentId) {
+        const { data: allProg } = await supabase
+          .from('study_progress')
+          .select('watched_seconds, is_completed')
+          .eq('student_id', resolvedStudentId);
 
-        if (student && is_completed) {
-          const newProgress = Math.min(100, Math.max(student.progress || 0, 50));
+        if (allProg && allProg.length > 0) {
+          const completedCount = allProg.filter(p => p.is_completed).length;
+          const pct = Math.min(100, Math.round((completedCount / Math.max(1, allProg.length)) * 100));
           await supabase
             .from('students')
-            .update({ progress: newProgress, updated_at: new Date().toISOString() })
-            .eq('id', studentId);
+            .update({ progress: pct, updated_at: new Date().toISOString() })
+            .eq('id', resolvedStudentId);
         }
-      } catch (err) {
-        // bỏ qua nếu lỗi
       }
-    }
+    } catch (err) {}
 
     return res.json({
       success: true,
-      message: 'Lưu tiến độ học tập thành công!',
+      message: 'Lưu tiến độ học tập vào CSDL Supabase thành công!',
       data: {
-        student_id: studentId,
+        student_id: resolvedStudentId,
         chapter_id,
-        lesson_id,
+        lesson_id: resolvedLessonId,
         total_studied_seconds,
         is_completed
       }
@@ -340,18 +379,31 @@ exports.saveStudyProgress = async (req, res) => {
   }
 };
 
-// ─── Lấy tiến độ học tập của học viên ─────────────────────────────────────────
+// ─── Lấy Tiến Độ Học Tập Của Học Viên Từ Supabase ─────────────────────────────
 exports.getStudyProgress = async (req, res) => {
   try {
     checkSupabase();
     const { id: studentId } = req.params;
+
+    let resolvedStudentId = studentId;
+    if (!isUuid(studentId)) {
+      try {
+        const { data: s } = await supabase
+          .from('students')
+          .select('id')
+          .or(`username.eq.${studentId},email.eq.${studentId}`)
+          .limit(1)
+          .single();
+        if (s && s.id) resolvedStudentId = s.id;
+      } catch (e) {}
+    }
 
     let progressList = [];
     try {
       const { data } = await supabase
         .from('study_progress')
         .select('*')
-        .eq('student_id', studentId);
+        .eq('student_id', resolvedStudentId);
       if (data) progressList = data;
     } catch (e) {
       console.warn('Không thể truy vấn study_progress:', e.message);
@@ -360,6 +412,160 @@ exports.getStudyProgress = async (req, res) => {
     return res.json({
       success: true,
       data: progressList
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ─── Lưu Kết Quả Bài Kiểm Tra Trắc Nghiệm Vào Supabase ────────────────────────
+exports.saveQuizAttempt = async (req, res) => {
+  try {
+    checkSupabase();
+    const { id: studentId } = req.params;
+    const { course_id, chapter_id, lesson_id, score, total_questions, is_passed, answers } = req.body;
+
+    if (!studentId) {
+      return res.status(400).json({ success: false, message: 'Thiếu thông tin studentId!' });
+    }
+
+    let resolvedStudentId = studentId;
+    if (!isUuid(studentId)) {
+      try {
+        const { data: s } = await supabase
+          .from('students')
+          .select('id')
+          .or(`username.eq.${studentId},email.eq.${studentId}`)
+          .limit(1)
+          .single();
+        if (s && s.id) resolvedStudentId = s.id;
+      } catch (e) {}
+    }
+
+    let resolvedLessonId = lesson_id;
+    if (lesson_id && !isUuid(lesson_id) && chapter_id) {
+      try {
+        const { data: realLesson } = await supabase
+          .from('lessons')
+          .select('id')
+          .eq('chapter_id', chapter_id)
+          .eq('type', 'quiz')
+          .limit(1)
+          .single();
+        if (realLesson && realLesson.id) resolvedLessonId = realLesson.id;
+      } catch (e) {}
+    }
+
+    let savedAttempt = null;
+    try {
+      const attemptPayload = {
+        student_id: resolvedStudentId,
+        score: Number(score) || 0,
+        total_questions: Number(total_questions) || 0,
+        is_passed: !!is_passed,
+        answers: answers || {},
+        attempted_at: new Date().toISOString()
+      };
+      if (resolvedLessonId && isUuid(resolvedLessonId)) {
+        attemptPayload.lesson_id = resolvedLessonId;
+      }
+
+      const { data, error } = await supabase
+        .from('quiz_attempts')
+        .insert([attemptPayload])
+        .select()
+        .single();
+      if (!error && data) savedAttempt = data;
+    } catch (qaErr) {
+      console.warn('Lưu quiz_attempts warning:', qaErr.message);
+    }
+
+    // Đánh dấu hoàn thành bài học quiz trong bảng study_progress nếu đạt
+    if (resolvedLessonId && isUuid(resolvedLessonId)) {
+      try {
+        const { data: existingProgress } = await supabase
+          .from('study_progress')
+          .select('id, watched_seconds')
+          .eq('student_id', resolvedStudentId)
+          .eq('lesson_id', resolvedLessonId)
+          .single();
+
+        if (existingProgress) {
+          await supabase
+            .from('study_progress')
+            .update({
+              is_completed: is_passed !== undefined ? !!is_passed : true,
+              watched_seconds: (existingProgress.watched_seconds || 0) + 180,
+              last_studied_at: new Date().toISOString()
+            })
+            .eq('id', existingProgress.id);
+        } else {
+          await supabase
+            .from('study_progress')
+            .insert([{
+              student_id: resolvedStudentId,
+              lesson_id: resolvedLessonId,
+              watched_seconds: 180,
+              is_completed: !!is_passed,
+              last_studied_at: new Date().toISOString()
+            }]);
+        }
+      } catch (spErr) {}
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Lưu kết quả bài kiểm tra vào CSDL Supabase thành công!',
+      data: savedAttempt || {
+        student_id: resolvedStudentId,
+        chapter_id,
+        lesson_id: resolvedLessonId,
+        score,
+        total_questions,
+        is_passed,
+        answers
+      }
+    });
+  } catch (err) {
+    console.error('Lỗi saveQuizAttempt:', err.message);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ─── Lấy Danh Sách Kết Quả Bài Kiểm Tra Của Học Viên Từ Supabase ─────────────
+exports.getQuizAttempts = async (req, res) => {
+  try {
+    checkSupabase();
+    const { id: studentId } = req.params;
+
+    let resolvedStudentId = studentId;
+    if (!isUuid(studentId)) {
+      try {
+        const { data: s } = await supabase
+          .from('students')
+          .select('id')
+          .or(`username.eq.${studentId},email.eq.${studentId}`)
+          .limit(1)
+          .single();
+        if (s && s.id) resolvedStudentId = s.id;
+      } catch (e) {}
+    }
+
+    let attempts = [];
+    try {
+      const { data, error } = await supabase
+        .from('quiz_attempts')
+        .select('*')
+        .eq('student_id', resolvedStudentId)
+        .order('attempted_at', { ascending: false });
+      if (!error && data) attempts = data;
+    } catch (e) {
+      console.warn('Lỗi lấy quiz_attempts:', e.message);
+    }
+
+    return res.json({
+      success: true,
+      data: attempts
     });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });

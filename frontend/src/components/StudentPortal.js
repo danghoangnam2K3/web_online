@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../lib/AuthContext';
-import { fetchCourses, saveStudentProgressApi, fetchStudentProgressApi } from '../lib/api';
+import { fetchCourses, saveStudentProgressApi, fetchStudentProgressApi, saveQuizAttemptApi, fetchQuizAttemptsApi } from '../lib/api';
 import {
   BookOpen,
   User,
@@ -122,6 +122,7 @@ export default function StudentPortal({ onSwitchToAdmin }) {
   const [quizAnswers, setQuizAnswers] = useState({});
   const [quizSubmitted, setQuizSubmitted] = useState(false);
   const [quizScore, setQuizScore] = useState(null);
+  const [savedQuizAttempts, setSavedQuizAttempts] = useState({}); // { [quizKey]: { score, total, passed, answers } }
 
   // State cập nhật tài khoản
   const [profileForm, setProfileForm] = useState({
@@ -246,7 +247,7 @@ export default function StudentPortal({ onSwitchToAdmin }) {
   });
 
 
-  // 3. Khôi phục tiến độ học tập và đồng bộ với backend (nếu bị xóa khỏi khóa học sẻ reset về 0)
+  // 3. Khôi phục tiến độ học tập và kết quả bài kiểm tra từ CSDL Supabase
   useEffect(() => {
     if (!selectedCourse || !user) return;
     const storageKey = `driveedu_progress_${user.id || user.username || 'student'}_${selectedCourse.id}`;
@@ -259,59 +260,72 @@ export default function StudentPortal({ onSwitchToAdmin }) {
       return initial;
     };
 
-    // Đọc trước từ LocalStorage
+    // Khôi phục trước từ LocalStorage để giao diện hiển thị ngay lập tức
+    let localData = getInitial();
     try {
       const saved = localStorage.getItem(storageKey);
-      if (saved) {
-        setChapterProgress(JSON.parse(saved));
-      } else {
-        setChapterProgress(getInitial());
-      }
-    } catch (e) {
-      setChapterProgress(getInitial());
-    }
+      if (saved) localData = JSON.parse(saved);
+    } catch (e) {}
+    setChapterProgress(localData);
 
-    // Đồng bộ và kiểm tra với máy chủ: nếu học viên bị xóa thành tích hoặc add lại từ đầu
+    // 1. Tải tiến độ học tập thực tế từ CSDL Supabase
     if (user.id) {
       fetchStudentProgressApi(user.id).then(backendProgress => {
-        if (Array.isArray(backendProgress)) {
-          const allLessonIds = [];
-          (selectedCourse.chapters || []).forEach(ch => {
-            (ch.lessons || []).forEach(ls => allLessonIds.push(ls.id));
-          });
+        if (Array.isArray(backendProgress) && backendProgress.length > 0) {
+          setChapterProgress(prev => {
+            const updated = { ...prev };
+            (selectedCourse.chapters || []).forEach(ch => {
+              const chapterLessons = (ch.lessons || []).map(l => l.id);
+              const chapterRecords = backendProgress.filter(r => chapterLessons.includes(r.lesson_id));
+              const totalDbSeconds = chapterRecords.reduce((sum, r) => sum + (Number(r.watched_seconds) || 0), 0);
+              const isDbComp = chapterRecords.some(r => r.is_completed);
 
-          const courseRecords = backendProgress.filter(p => allLessonIds.includes(p.lesson_id));
+              const currentSec = updated[ch.id]?.studiedSeconds || 0;
+              const maxSec = Math.max(currentSec, totalDbSeconds);
+              const isComp = updated[ch.id]?.isCompleted || isDbComp;
 
-          // Nếu backend không có bản ghi nào của khóa này (vừa được add lại hoặc bị reset hoàn toàn)
-          if (courseRecords.length === 0) {
-            try {
-              localStorage.removeItem(storageKey);
-            } catch (e) {}
-            setChapterProgress(getInitial());
-          } else {
-            // Có dữ liệu hợp lệ trên backend, đồng bộ lại
-            setChapterProgress(prev => {
-              const updated = { ...prev };
-              (selectedCourse.chapters || []).forEach(ch => {
-                const chapterLessons = (ch.lessons || []).map(l => l.id);
-                const chapterRecords = courseRecords.filter(r => chapterLessons.includes(r.lesson_id));
-                const totalSeconds = chapterRecords.reduce((sum, r) => sum + (r.watched_seconds || 0), 0);
-                const isComp = chapterRecords.some(r => r.is_completed);
-                if (totalSeconds > 0 || isComp) {
-                  updated[ch.id] = {
-                    studiedSeconds: Math.max(updated[ch.id]?.studiedSeconds || 0, totalSeconds),
-                    isCompleted: updated[ch.id]?.isCompleted || isComp
-                  };
-                }
-              });
-              try {
-                localStorage.setItem(storageKey, JSON.stringify(updated));
-              } catch (e) {}
-              return updated;
+              if (maxSec > 0 || isComp) {
+                updated[ch.id] = {
+                  studiedSeconds: maxSec,
+                  isCompleted: isComp
+                };
+              }
             });
-          }
+            try {
+              localStorage.setItem(storageKey, JSON.stringify(updated));
+            } catch (e) {}
+            return updated;
+          });
         }
-      }).catch(() => {});
+      }).catch(err => console.warn('Lỗi tải tiến độ Supabase:', err.message));
+
+      // 2. Tải toàn bộ kết quả bài kiểm tra đã lưu từ CSDL Supabase
+      fetchQuizAttemptsApi(user.id).then(attempts => {
+        if (Array.isArray(attempts) && attempts.length > 0) {
+          const attemptMap = {};
+          attempts.forEach(att => {
+            (selectedCourse.chapters || []).forEach(ch => {
+              const matchingLesson = (ch.lessons || []).find(l => l.id === att.lesson_id);
+              if (matchingLesson) {
+                const key = `${ch.id}_${matchingLesson.id}`;
+                if (!attemptMap[key]) {
+                  attemptMap[key] = {
+                    score: att.score,
+                    total: att.total_questions,
+                    passed: att.is_passed,
+                    answers: att.answers || {},
+                    attempted_at: att.attempted_at
+                  };
+                  try {
+                    localStorage.setItem(`driveedu_quiz_result_${user.id}_${key}`, JSON.stringify(attemptMap[key]));
+                  } catch (e) {}
+                }
+              }
+            });
+          });
+          setSavedQuizAttempts(prev => ({ ...prev, ...attemptMap }));
+        }
+      }).catch(err => console.warn('Lỗi tải bài kiểm tra Supabase:', err.message));
     }
   }, [selectedCourse, user]);
 
@@ -323,7 +337,39 @@ export default function StudentPortal({ onSwitchToAdmin }) {
     } catch (e) {}
   };
 
-  // 4. LIVE REALTIME TIMER: TÍNH THỜI GIAN HỌC THỰC TẾ CHO CHƯƠNG KHI XEM BÀI GIẢNG
+  // Tự động lưu tiến độ vào Supabase khi người dùng đóng trình duyệt hoặc chuyển tab
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (currentLesson && user?.id && selectedCourse) {
+        const chId = currentLesson.chapterId;
+        const curData = chapterProgress[chId];
+        if (curData && curData.studiedSeconds > 0) {
+          const payload = JSON.stringify({
+            course_id: selectedCourse.id,
+            chapter_id: chId,
+            lesson_id: currentLesson.lesson.id,
+            seconds_added: 0,
+            total_studied_seconds: curData.studiedSeconds,
+            is_completed: curData.isCompleted
+          });
+          try {
+            if (navigator.sendBeacon) {
+              navigator.sendBeacon(`${BASE_URL}/students/${user.id}/study-progress`, new Blob([payload], { type: 'application/json' }));
+            }
+          } catch (e) {}
+        }
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    window.addEventListener('pagehide', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      window.removeEventListener('pagehide', handleBeforeUnload);
+    };
+  }, [currentLesson, user, selectedCourse, chapterProgress]);
+
+  // 4. LIVE REALTIME TIMER: TÍNH THỜI GIAN HỌC THỰC TẾ CHO CHƯƠNG KHI XEM BÀI GIẢNG (HỌC TỚI ĐÂU LƯU TỚI ĐÓ)
   useEffect(() => {
     let interval = null;
     if (isTimerRunning && currentLesson && selectedCourse) {
@@ -350,20 +396,21 @@ export default function StudentPortal({ onSwitchToAdmin }) {
             }
           };
 
+          // Lưu ngay tức thì vào LocalStorage mỗi giây
           persistProgress(updated);
 
-          // KHI ĐỦ ĐIỀU KIỆN CỦA CHƯƠNG THÌ XUẤT HIỆN THÔNG BÁO HOÀN THÀNH CHƯƠNG
+          // Khi đủ điều kiện của chương thì xuất hiện thông báo hoàn thành
           if (newlyCompleted) {
             triggerChapterCompletion(chapter, newSeconds, totalDurationSec);
           }
 
-          // Lưu ngầm lên backend mỗi 15 giây
-          if (newSeconds % 15 === 0 && user?.id) {
+          // Học tới đâu lưu tới đó: Tự động đồng bộ lên CSDL Supabase mỗi 5 giây
+          if (newSeconds % 5 === 0 && user?.id) {
             saveStudentProgressApi(user.id, {
               course_id: selectedCourse.id,
               chapter_id: chId,
               lesson_id: currentLesson.lesson.id,
-              seconds_added: 15,
+              seconds_added: 5,
               total_studied_seconds: newSeconds,
               is_completed: curData.isCompleted || newlyCompleted
             });
@@ -494,6 +541,22 @@ export default function StudentPortal({ onSwitchToAdmin }) {
 
   // 7. KHI HỌC VIÊN ẤN VÀO BÀI GIẢNG CỦA CHƯƠNG HỌC
   const handleSelectLesson = (chapter, lesson) => {
+    // Nếu chuyển bài, lập tức lưu số giây đã học của bài cũ lên CSDL Supabase
+    if (currentLesson && user?.id && selectedCourse) {
+      const oldChId = currentLesson.chapterId;
+      const oldProgress = chapterProgress[oldChId];
+      if (oldProgress && oldProgress.studiedSeconds > 0) {
+        saveStudentProgressApi(user.id, {
+          course_id: selectedCourse.id,
+          chapter_id: oldChId,
+          lesson_id: currentLesson.lesson.id,
+          seconds_added: 0,
+          total_studied_seconds: oldProgress.studiedSeconds,
+          is_completed: oldProgress.isCompleted
+        });
+      }
+    }
+
     let preparedLesson = lesson;
     if (lesson.type === 'quiz') {
       const qQuestions = getQuizQuestionsFromSource(chapter, lesson);
@@ -513,9 +576,36 @@ export default function StudentPortal({ onSwitchToAdmin }) {
     });
     // Bắt đầu tính thời gian học cho chương
     setIsTimerRunning(true);
-    setQuizAnswers({});
-    setQuizSubmitted(false);
-    setQuizScore(null);
+
+    // Khôi phục kết quả bài kiểm tra nếu đã nộp trước đó (dù thoát ra vào lại)
+    if (lesson.type === 'quiz') {
+      const quizKey = `${chapter.id}_${lesson.id}`;
+      let existingAttempt = savedQuizAttempts[quizKey];
+      if (!existingAttempt && user?.id) {
+        try {
+          const cached = localStorage.getItem(`driveedu_quiz_result_${user.id}_${quizKey}`);
+          if (cached) existingAttempt = JSON.parse(cached);
+        } catch (e) {}
+      }
+
+      if (existingAttempt) {
+        setQuizAnswers(existingAttempt.answers || {});
+        setQuizSubmitted(true);
+        setQuizScore({
+          correct: existingAttempt.score,
+          total: existingAttempt.total || existingAttempt.total_questions,
+          passed: existingAttempt.passed !== undefined ? existingAttempt.passed : existingAttempt.is_passed
+        });
+      } else {
+        setQuizAnswers({});
+        setQuizSubmitted(false);
+        setQuizScore(null);
+      }
+    } else {
+      setQuizAnswers({});
+      setQuizSubmitted(false);
+      setQuizScore(null);
+    }
   };
 
   // 8. Tua nhanh thời gian học (Kiểm thử nhanh)
@@ -562,8 +652,8 @@ export default function StudentPortal({ onSwitchToAdmin }) {
     });
   };
 
-  // 9. Nộp bài trắc nghiệm
-  const handleSubmitQuiz = (questions) => {
+  // 9. Nộp bài trắc nghiệm & Lưu kết quả vào CSDL Supabase
+  const handleSubmitQuiz = async (questions) => {
     if (!questions || questions.length === 0) return;
     let correct = 0;
     questions.forEach((q, idx) => {
@@ -576,12 +666,47 @@ export default function StudentPortal({ onSwitchToAdmin }) {
         correct++;
       }
     });
-    setQuizScore({
+
+    const isPassed = correct / questions.length >= 0.8;
+    const scoreData = {
       correct,
       total: questions.length,
-      passed: correct / questions.length >= 0.8
-    });
+      passed: isPassed
+    };
+    setQuizScore(scoreData);
     setQuizSubmitted(true);
+
+    // Lưu ngay kết quả bài kiểm tra vào CSDL Supabase
+    if (user?.id && currentLesson) {
+      const quizKey = `${currentLesson.chapterId}_${currentLesson.lesson.id}`;
+      const attemptData = {
+        score: correct,
+        total: questions.length,
+        passed: isPassed,
+        answers: quizAnswers,
+        attempted_at: new Date().toISOString()
+      };
+
+      setSavedQuizAttempts(prev => ({
+        ...prev,
+        [quizKey]: attemptData
+      }));
+
+      try {
+        localStorage.setItem(`driveedu_quiz_result_${user.id}_${quizKey}`, JSON.stringify(attemptData));
+      } catch (e) {}
+
+      saveQuizAttemptApi(user.id, {
+        course_id: selectedCourse?.id,
+        chapter_id: currentLesson.chapterId,
+        lesson_id: currentLesson.lesson.id,
+        score: correct,
+        total_questions: questions.length,
+        is_passed: isPassed,
+        answers: quizAnswers
+      });
+    }
+
     handleFastForwardTime(180);
   };
 
