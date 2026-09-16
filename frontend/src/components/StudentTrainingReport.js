@@ -1,19 +1,6 @@
-'use client';
-
 import React, { useState, useEffect } from 'react';
-import { Printer, Download, FileText, CheckCircle2, UserCheck, Calendar, Building2, Award, Hash, Image as ImageIcon, BookOpen } from 'lucide-react';
-import { fetchCourseById } from '../lib/api';
-
-// Dữ liệu thời lượng đào tạo chuẩn dự phòng nếu khóa học chưa tạo chương bài học
-export const DEFAULT_TRAINING_MODULES = [
-  { id: 1, title: 'Chương 1: Pháp luật giao thông đường bộ', defaultDuration: '90 giờ' },
-  { id: 2, title: 'Chương 2: Cấu tạo và sửa chữa thông thường', defaultDuration: '18 giờ' },
-  { id: 3, title: 'Chương 3: Nghiệp vụ vận tải', defaultDuration: '14 giờ' },
-  { id: 4, title: 'Chương 4: Đạo đức người lái xe và văn hóa giao thông', defaultDuration: '20 giờ' },
-  { id: 5, title: 'Chương 5: Kỹ thuật lái xe ô tô', defaultDuration: '20 giờ' },
-  { id: 6, title: 'Chương 6: Học phần mềm mô phỏng các tình huống giao thông', defaultDuration: '04 giờ' },
-  { id: 7, title: 'Chương 7: Thực hành lái xe (Cabin tập lái & Đường trường)', defaultDuration: '84 giờ' },
-];
+import { Printer, Download, FileText, CheckCircle2, UserCheck, Calendar, Building2, Award, Hash, Image as ImageIcon, BookOpen, Clock } from 'lucide-react';
+import { fetchCourseById, fetchStudentProgressApi } from '../lib/api';
 
 export default function StudentTrainingReport({
   student,
@@ -33,83 +20,174 @@ export default function StudentTrainingReport({
   const [trainingCenter, setTrainingCenter] = useState(
     initialCenter || 'Trung Tâm Đào Tạo & Sát Hạch Lái Xe DriveEdu'
   );
-  const [conclusion, setConclusion] = useState(
-    initialConclusion || (student?.progress >= 80 ? 'Đáp ứng' : 'Đáp ứng')
-  );
-  const [modules, setModules] = useState(DEFAULT_TRAINING_MODULES);
-  const [customTotalHours, setCustomTotalHours] = useState('250 giờ');
+  const [conclusion, setConclusion] = useState(initialConclusion || 'Đáp ứng');
+  const [modules, setModules] = useState([]);
+  const [customTotalHours, setCustomTotalHours] = useState('0 phút');
   const [isEditingHours, setIsEditingHours] = useState(false);
   const [fullCourseData, setFullCourseData] = useState(course || null);
+  const [studentProgressList, setStudentProgressList] = useState([]);
+  const [loadingDb, setLoadingDb] = useState(true);
 
-  // Tải chi tiết chapters từ CSDL Supabase nếu chưa có sẵn
+  // 1. Tải chi tiết Khóa học & Chapters/Lessons từ CSDL Supabase
   useEffect(() => {
     if (course?.id && (!course.chapters || course.chapters.length === 0)) {
       fetchCourseById(course.id)
         .then(data => {
           if (data) setFullCourseData(data);
         })
-        .catch(err => console.warn('Không thể tải chi tiết chương:', err));
+        .catch(err => console.warn('Không thể tải chi tiết khóa học từ Supabase:', err));
     } else {
       setFullCourseData(course);
     }
   }, [course]);
 
-  // Cập nhật các hàng nội dung đào tạo từ danh sách chương (chapters) thực tế của khóa học
+  // 2. Tải tiến độ học tập thực tế của học viên từ CSDL Supabase (bảng study_progress)
   useEffect(() => {
-    const chapters = fullCourseData?.chapters;
-    if (Array.isArray(chapters) && chapters.length > 0) {
-      // Sắp xếp các chương theo thứ tự order_index
-      const sorted = [...chapters].sort((a, b) => (a.order_index || 0) - (b.order_index || 0));
-      
-      let totalMinutes = 0;
-      const chapterRows = sorted.map((ch, idx) => {
-        const lessons = ch.lessons || [];
-        const chMins = lessons.reduce((sum, l) => sum + (Number(l.duration_minutes) || 0), 0);
+    if (student?.id) {
+      setLoadingDb(true);
+      fetchStudentProgressApi(student.id)
+        .then(data => {
+          setStudentProgressList(Array.isArray(data) ? data : []);
+        })
+        .catch(err => console.warn('Không thể tải tiến độ học từ Supabase:', err))
+        .finally(() => setLoadingDb(false));
+    }
+  }, [student]);
 
-        let durationDisplay = '';
-        if (chMins > 0) {
-          totalMinutes += chMins;
-          if (chMins >= 60) {
-            const hrs = Math.round((chMins / 60) * 10) / 10;
-            durationDisplay = `${hrs} giờ`;
-          } else {
-            durationDisplay = `${chMins} phút`;
+  // 3. Lọc VÀ CHỈ HIỂN THỊ CÁC BÀI HỌC HỌC VIÊN ĐÃ HỌC THỰC TẾ (Lấy từ Supabase, không dùng dữ liệu tĩnh)
+  useEffect(() => {
+    // Thu thập tất cả các bài học trong toàn bộ các chương của khóa học
+    const allLessons = [];
+    (fullCourseData?.chapters || []).forEach((ch, chIdx) => {
+      const sortedLessons = [...(ch.lessons || [])].sort((a, b) => (a.order_index || 0) - (b.order_index || 0));
+      sortedLessons.forEach((l, lIdx) => {
+        allLessons.push({
+          ...l,
+          chapter_id: ch.id,
+          chapter_title: ch.title || `Chương ${chIdx + 1}`,
+          chapter_index: chIdx + 1,
+          lesson_index: lIdx + 1
+        });
+      });
+    });
+
+    // Bản đồ tiến độ từ CSDL Supabase
+    const dbProgressMap = {};
+    (studentProgressList || []).forEach(p => {
+      if (p && p.lesson_id) {
+        dbProgressMap[p.lesson_id] = p;
+      }
+    });
+
+    // Bản đồ tiến độ từ LocalStorage cache (nếu học viên vừa học trên trình duyệt này)
+    let localChapterProgress = {};
+    if (typeof window !== 'undefined' && student?.id && fullCourseData?.id) {
+      try {
+        const raw = localStorage.getItem(`driveedu_progress_${student.id}_${fullCourseData.id}`);
+        if (raw) localChapterProgress = JSON.parse(raw);
+      } catch (e) {}
+    }
+
+    const studentPct = Number(student?.progress) || 0;
+    const hasDbRecords = Object.keys(dbProgressMap).length > 0;
+    const studiedLessons = [];
+
+    allLessons.forEach((lesson, index) => {
+      const dbRecord = dbProgressMap[lesson.id];
+      const localRecord = localChapterProgress[lesson.chapter_id];
+
+      let isStudied = false;
+      let durationSec = 0;
+
+      if (dbRecord) {
+        // Có bản ghi trong bảng study_progress trên Supabase
+        const watchedSec = Number(dbRecord.watched_seconds) || 0;
+        if (watchedSec > 0 || dbRecord.is_completed) {
+          isStudied = true;
+          durationSec = watchedSec > 0 ? watchedSec : ((Number(lesson.duration_minutes) || 15) * 60);
+        }
+      } else if (hasDbRecords) {
+        // CSDL đã có bản ghi tiến độ nhưng bài này không có => học viên CHƯA học bài này
+        isStudied = false;
+      } else {
+        // CSDL chưa có bản ghi study_progress riêng lẻ => đối chiếu trực tiếp với progress % của học viên từ Supabase
+        if (studentPct > 0 && allLessons.length > 0) {
+          const completedCount = Math.max(1, Math.round((studentPct / 100) * allLessons.length));
+          if (index < completedCount) {
+            isStudied = true;
+            durationSec = (Number(lesson.duration_minutes) || 15) * 60;
           }
+        }
+      }
+
+      if (isStudied) {
+        studiedLessons.push({
+          lesson,
+          durationSec
+        });
+      }
+    });
+
+    // Xuất ra danh sách bài học đã học
+    if (studiedLessons.length > 0) {
+      let totalSec = 0;
+      const rows = studiedLessons.map((item, idx) => {
+        totalSec += item.durationSec;
+        const durMinutes = Math.round(item.durationSec / 60);
+
+        let durationStr = '';
+        if (durMinutes >= 60) {
+          const hrs = Math.round((durMinutes / 60) * 10) / 10;
+          durationStr = `${hrs} giờ`;
         } else {
-          // Nếu bài học chưa gán số phút, phân bổ số giờ theo chuẩn
-          const defaultHoursList = [90, 18, 14, 20, 20, 4, 84];
-          const defaultH = defaultHoursList[idx] || (Math.max(10, 30 - idx * 3));
-          totalMinutes += defaultH * 60;
-          durationDisplay = `${defaultH} giờ`;
+          durationStr = `${Math.max(1, durMinutes)} phút`;
         }
 
-        const rawTitle = (ch.title || '').trim();
-        const displayTitle = rawTitle.toLowerCase().startsWith('chương')
-          ? rawTitle
-          : `Chương ${idx + 1}: ${rawTitle}`;
+        const l = item.lesson;
+        const chName = l.chapter_title ? l.chapter_title.trim() : `Chương ${l.chapter_index}`;
+        const lessonTitle = l.title ? l.title.trim() : `Bài ${l.lesson_index}`;
+        const displayTitle = `${chName} - ${lessonTitle}`;
 
         return {
           id: idx + 1,
           title: displayTitle,
-          defaultDuration: durationDisplay
+          defaultDuration: durationStr
         };
       });
 
-      setModules(chapterRows);
+      setModules(rows);
 
-      // Cập nhật tổng số thời gian đào tạo
-      if (fullCourseData?.total_hours) {
-        setCustomTotalHours(`${fullCourseData.total_hours} giờ`);
+      // Tính tổng số thời gian thực tế đã học
+      const totalMins = Math.round(totalSec / 60);
+      let totalStr = '';
+      if (totalMins >= 60) {
+        const hrs = Math.floor(totalMins / 60);
+        const remMins = totalMins % 60;
+        totalStr = remMins > 0 ? `${hrs} giờ ${remMins} phút` : `${hrs} giờ`;
       } else {
-        const totalHrs = Math.round((totalMinutes / 60) * 10) / 10;
-        setCustomTotalHours(totalHrs > 0 ? `${totalHrs} giờ` : '250 giờ');
+        totalStr = `${totalMins} phút`;
+      }
+      setCustomTotalHours(totalStr);
+
+      // Đánh giá kết luận
+      if (studentPct >= 80) {
+        setConclusion('Đáp ứng');
+      } else {
+        setConclusion(`Chưa đáp ứng (Tiến độ: ${studentPct}%)`);
       }
     } else {
-      // Dùng danh sách chương mẫu nếu khóa học chưa được tạo chương
-      setModules(DEFAULT_TRAINING_MODULES);
-      setCustomTotalHours(fullCourseData?.total_hours ? `${fullCourseData.total_hours} giờ` : '250 giờ');
+      // Học viên chưa tham gia học bài nào
+      setModules([
+        {
+          id: 1,
+          title: 'Học viên chưa hoàn thành bài học nào trong khóa học',
+          defaultDuration: '0 phút'
+        }
+      ]);
+      setCustomTotalHours('0 phút');
+      setConclusion(`Chưa đáp ứng (Tiến độ: ${studentPct}%)`);
     }
-  }, [fullCourseData]);
+  }, [fullCourseData, student, studentProgressList]);
 
   // Format ngày sinh
   const formatDob = (dobStr) => {
