@@ -75,100 +75,148 @@ export default function StudentTrainingReport({
     setModules(updated);
   };
 
-  // Xuất file Microsoft Word (.doc)
+  // Xuất file Microsoft Word (.doc) chuẩn 100% không bị lỗi hỏng file
   const handleExportWord = () => {
     const tableRows = modules.map((m) => `
       <tr>
-        <td style="border: 1px solid #000; text-align: center; padding: 6px 8px; font-size: 13pt;">${m.id}</td>
-        <td style="border: 1px solid #000; text-align: left; padding: 6px 10px; font-size: 13pt;">${m.title}</td>
-        <td style="border: 1px solid #000; text-align: center; padding: 6px 8px; font-size: 13pt;">${m.defaultDuration}</td>
+        <td style="border: 1px solid #000000; text-align: center; padding: 6px 8px; font-size: 13pt; font-family: 'Times New Roman', serif;">${m.id}</td>
+        <td style="border: 1px solid #000000; text-align: left; padding: 6px 10px; font-size: 13pt; font-family: 'Times New Roman', serif;">${m.title}</td>
+        <td style="border: 1px solid #000000; text-align: center; padding: 6px 8px; font-size: 13pt; font-family: 'Times New Roman', serif;">${m.defaultDuration}</td>
       </tr>
     `).join('');
 
     const htmlContent = `
-      <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+      <html xmlns:o="urn:schemas-microsoft-com:office:office"
+            xmlns:w="urn:schemas-microsoft-com:office:word"
+            xmlns="http://www.w3.org/TR/REC-html40">
       <head>
-        <meta charset='utf-8'>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
         <title>Báo Cáo Quá Trình Đào Tạo - ${studentName}</title>
+        <!--[if gte mso 9]>
+        <xml>
+          <w:WordDocument>
+            <w:View>Print</w:View>
+            <w:Zoom>100</w:Zoom>
+            <w:DoNotOptimizeForBrowser/>
+          </w:WordDocument>
+        </xml>
+        <![endif]-->
         <style>
-          @page { size: A4; margin: 15mm 20mm; }
-          body { font-family: 'Times New Roman', serif; color: #000; line-height: 1.4; }
-          h2 { text-align: center; font-size: 16pt; font-weight: bold; margin-bottom: 4px; text-transform: uppercase; }
-          .date-sub { text-align: center; font-style: italic; font-size: 13pt; margin-bottom: 20px; }
-          .section-title { font-weight: bold; font-size: 13pt; margin-top: 15px; margin-bottom: 8px; }
-          table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
-          th, td { border: 1px solid #000; padding: 6px 8px; font-size: 13pt; }
-          .no-border-table td { border: none; padding: 4px 6px; }
-          .info-table td { border: 1px solid #000; }
-          .signature-box { margin-top: 35px; width: 100%; }
-          .signature-box td { border: none; text-align: center; vertical-align: top; width: 50%; font-size: 13pt; }
-          .sig-title { font-weight: bold; text-transform: uppercase; }
-          .sig-note { font-style: italic; font-size: 11pt; color: #444; }
-          .sig-space { height: 75px; }
+          @page Section1 {
+            size: 595.3pt 841.9pt;
+            margin: 42.5pt 56.7pt 42.5pt 56.7pt;
+            mso-header-margin: 36.0pt;
+            mso-footer-margin: 36.0pt;
+            mso-paper-source: 0;
+          }
+          div.Section1 { page: Section1; }
+          body {
+            font-family: 'Times New Roman', serif;
+            font-size: 13pt;
+            color: #000000;
+            line-height: 1.35;
+          }
+          h2 {
+            text-align: center;
+            font-size: 16pt;
+            font-weight: bold;
+            margin-bottom: 2pt;
+            text-transform: uppercase;
+            font-family: 'Times New Roman', serif;
+          }
+          p.date-sub {
+            text-align: center;
+            font-style: italic;
+            font-size: 13pt;
+            margin-top: 0pt;
+            margin-bottom: 14pt;
+          }
+          p.section-title {
+            font-weight: bold;
+            font-size: 13pt;
+            margin-top: 10pt;
+            margin-bottom: 5pt;
+          }
+          table {
+            border-collapse: collapse;
+            mso-table-lspace: 0pt;
+            mso-table-rspace: 0pt;
+          }
+          td, th {
+            font-family: 'Times New Roman', serif;
+          }
         </style>
       </head>
-      <body>
-        <h2>BÁO CÁO QUÁ TRÌNH ĐÀO TẠO CỦA HỌC VIÊN</h2>
-        <div class="date-sub">(Ngày báo cáo: ${reportDate || '...... / ...... / 2026'})</div>
+      <body lang="VI">
+        <div class="Section1">
+          <h2>BÁO CÁO QUÁ TRÌNH ĐÀO TẠO CỦA HỌC VIÊN</h2>
+          <p class="date-sub">(Ngày báo cáo: ${reportDate || '...... / ...... / 2026'})</p>
 
-        <div class="section-title">I. Thông tin học viên:</div>
-        <table class="info-table" style="border: 1px solid #000; width: 100%;">
-          <tr>
-            <td style="width: 72%; vertical-align: top; padding: 8px 12px; border: 1px solid #000;">
-              <p style="margin: 4px 0;"><strong>1. Họ và tên:</strong> ${studentName}</p>
-              <p style="margin: 4px 0;"><strong>2. Mã học viên:</strong> ${studentCode}</p>
-              <p style="margin: 4px 0;"><strong>3. Ngày sinh:</strong> ${studentDob}</p>
-              <p style="margin: 4px 0;"><strong>4. Mã khóa học:</strong> ${courseCode}</p>
-              <p style="margin: 4px 0;"><strong>5. Hạng đào tạo:</strong> Hạng ${licenseTier}</p>
-              <p style="margin: 4px 0;"><strong>6. Cơ sở đào tạo:</strong> ${trainingCenter}</p>
-            </td>
-            <td style="width: 28%; text-align: center; vertical-align: middle; padding: 8px; border: 1px solid #000;">
-              ${avatarSrc ? `<img src="${avatarSrc}" width="115" height="150" style="object-fit: cover; border: 1px solid #999;" />` : `
-                <div style="width: 115px; height: 150px; border: 1px dashed #333; margin: 0 auto; display: flex; align-items: center; justify-content: center; font-size: 11pt; color: #666;">
-                  Ảnh 3x4
-                </div>
-              `}
-            </td>
-          </tr>
-        </table>
-
-        <div class="section-title">II. Thông tin quá trình đào tạo:</div>
-        <table style="border: 1px solid #000; width: 100%;">
-          <thead>
-            <tr style="background-color: #f2f2f2;">
-              <th style="border: 1px solid #000; width: 10%; text-align: center;">STT</th>
-              <th style="border: 1px solid #000; width: 62%; text-align: center;">Nội dung đào tạo</th>
-              <th style="border: 1px solid #000; width: 28%; text-align: center;">Thời lượng đào tạo</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${tableRows}
+          <p class="section-title">I. Thông tin học viên:</p>
+          <table border="1" cellpadding="6" cellspacing="0" width="100%" style="border-collapse: collapse; border: 1px solid #000000;">
             <tr>
-              <td colspan="2" style="border: 1px solid #000; text-align: right; font-weight: bold; padding: 6px 12px;">Tổng số thời gian:</td>
-              <td style="border: 1px solid #000; text-align: center; font-weight: bold;">${customTotalHours}</td>
+              <td width="72%" style="border: 1px solid #000000; vertical-align: top; padding: 8px 12px;">
+                <p style="margin: 4px 0;"><strong>1. Họ và tên:</strong> ${studentName}</p>
+                <p style="margin: 4px 0;"><strong>2. Mã học viên:</strong> ${studentCode}</p>
+                <p style="margin: 4px 0;"><strong>3. Ngày sinh:</strong> ${studentDob}</p>
+                <p style="margin: 4px 0;"><strong>4. Mã khóa học:</strong> ${courseCode}</p>
+                <p style="margin: 4px 0;"><strong>5. Hạng đào tạo:</strong> Hạng ${licenseTier}</p>
+                <p style="margin: 4px 0;"><strong>6. Cơ sở đào tạo:</strong> ${trainingCenter}</p>
+              </td>
+              <td width="28%" align="center" style="border: 1px solid #000000; vertical-align: middle; padding: 8px; text-align: center;">
+                <table border="1" cellpadding="0" cellspacing="0" width="115" height="150" style="border-collapse: collapse; border: 1px solid #000000; margin: 0 auto; text-align: center;">
+                  <tr>
+                    <td align="center" style="vertical-align: middle; background-color: #f2f2f2; font-size: 11pt; font-weight: bold; padding: 10px;">
+                      ẢNH THẺ 3x4
+                      <br/>
+                      <span style="font-size: 9pt; font-weight: normal; color: #555555;">(Dán ảnh thẻ)</span>
+                    </td>
+                  </tr>
+                </table>
+              </td>
             </tr>
-            <tr>
-              <td colspan="2" style="border: 1px solid #000; text-align: right; font-weight: bold; padding: 6px 12px;">Kết luận:</td>
-              <td style="border: 1px solid #000; text-align: center; font-weight: bold;">${conclusion}</td>
-            </tr>
-          </tbody>
-        </table>
+          </table>
 
-        <table class="signature-box">
-          <tr>
-            <td>
-              <div class="sig-title">XÁC NHẬN CỦA CƠ SỞ ĐÀO TẠO</div>
-              <div class="sig-note">(Ký, ghi rõ họ tên và đóng dấu)</div>
-              <div class="sig-space"></div>
-            </td>
-            <td>
-              <div class="sig-title">XÁC NHẬN CỦA HỌC VIÊN</div>
-              <div class="sig-note">(Ký, ghi rõ họ tên)</div>
-              <div class="sig-space"></div>
-              <div style="font-weight: bold;">${studentName}</div>
-            </td>
-          </tr>
-        </table>
+          <p class="section-title">II. Thông tin quá trình đào tạo:</p>
+          <table border="1" cellpadding="6" cellspacing="0" width="100%" style="border-collapse: collapse; border: 1px solid #000000;">
+            <thead>
+              <tr style="background-color: #f2f2f2;">
+                <th width="10%" style="border: 1px solid #000000; text-align: center; font-weight: bold; padding: 6px;">STT</th>
+                <th width="62%" style="border: 1px solid #000000; text-align: center; font-weight: bold; padding: 6px;">Nội dung đào tạo</th>
+                <th width="28%" style="border: 1px solid #000000; text-align: center; font-weight: bold; padding: 6px;">Thời lượng đào tạo</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${tableRows}
+              <tr>
+                <td colspan="2" style="border: 1px solid #000000; text-align: right; font-weight: bold; padding: 6px 12px;">Tổng số thời gian:</td>
+                <td style="border: 1px solid #000000; text-align: center; font-weight: bold; padding: 6px;">${customTotalHours}</td>
+              </tr>
+              <tr>
+                <td colspan="2" style="border: 1px solid #000000; text-align: right; font-weight: bold; padding: 6px 12px;">Kết luận:</td>
+                <td style="border: 1px solid #000000; text-align: center; font-weight: bold; padding: 6px;">${conclusion}</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <br/>
+          <table border="0" cellpadding="4" cellspacing="0" width="100%">
+            <tr>
+              <td width="50%" align="center" style="vertical-align: top; text-align: center;">
+                <p style="margin: 0; font-weight: bold; text-transform: uppercase;">XÁC NHẬN CỦA CƠ SỞ ĐÀO TẠO</p>
+                <p style="margin: 2px 0 0 0; font-style: italic; font-size: 11pt; color: #444444;">(Ký, ghi rõ họ tên và đóng dấu)</p>
+                <br/><br/><br/><br/>
+                <p style="margin: 0; font-weight: bold;">${trainingCenter}</p>
+              </td>
+              <td width="50%" align="center" style="vertical-align: top; text-align: center;">
+                <p style="margin: 0; font-weight: bold; text-transform: uppercase;">XÁC NHẬN CỦA HỌC VIÊN</p>
+                <p style="margin: 2px 0 0 0; font-style: italic; font-size: 11pt; color: #444444;">(Ký, ghi rõ họ tên)</p>
+                <br/><br/><br/><br/>
+                <p style="margin: 0; font-weight: bold; text-transform: uppercase;">${studentName}</p>
+              </td>
+            </tr>
+          </table>
+        </div>
       </body>
       </html>
     `;
@@ -180,6 +228,118 @@ export default function StudentTrainingReport({
     const link = document.createElement('a');
     link.href = url;
     link.download = `BaoCao_DaoTao_${student?.username || studentCode}.doc`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  // Xuất file HTML độc lập (mở bất kỳ trình duyệt nào, in hoặc lưu PDF không bao giờ lỗi)
+  const handleExportHtml = () => {
+    const tableRows = modules.map((m) => `
+      <tr>
+        <td style="border: 1px solid #000; text-align: center; padding: 8px;">${m.id}</td>
+        <td style="border: 1px solid #000; text-align: left; padding: 8px 12px;">${m.title}</td>
+        <td style="border: 1px solid #000; text-align: center; padding: 8px;">${m.defaultDuration}</td>
+      </tr>
+    `).join('');
+
+    const standaloneHtml = `<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <title>Báo Cáo Quá Trình Đào Tạo - ${studentName}</title>
+  <style>
+    @page { size: A4 portrait; margin: 15mm 20mm; }
+    body { font-family: "Times New Roman", Times, serif; color: #000; max-width: 800px; margin: 20px auto; padding: 20px; line-height: 1.45; }
+    h1 { text-align: center; font-size: 20px; font-weight: bold; margin-bottom: 4px; text-transform: uppercase; }
+    .date-sub { text-align: center; font-style: italic; font-size: 14px; margin-bottom: 20px; }
+    .section-title { font-weight: bold; font-size: 15px; margin-top: 15px; margin-bottom: 8px; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 15px; }
+    th, td { border: 1px solid #000; padding: 6px 10px; font-size: 14px; }
+    .no-border td { border: none; }
+    .signature { display: flex; justify-content: space-between; margin-top: 35px; text-align: center; }
+    .signature > div { width: 48%; }
+    .sig-title { font-weight: bold; text-transform: uppercase; }
+    .sig-note { font-style: italic; font-size: 12px; color: #555; }
+    .sig-space { height: 90px; }
+    .print-btn-bar { text-align: center; margin-bottom: 25px; padding: 12px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; }
+    .print-btn { background: #16a34a; color: white; padding: 8px 18px; font-size: 14px; font-weight: bold; border: none; border-radius: 6px; cursor: pointer; }
+    @media print { .print-btn-bar { display: none; } body { margin: 0; padding: 0; } }
+  </style>
+</head>
+<body>
+  <div class="print-btn-bar">
+    <button class="print-btn" onclick="window.print()">🖨️ In Báo Cáo / Lưu Dưới Dạng PDF (A4)</button>
+    <p style="margin: 6px 0 0 0; font-size: 12px; color: #15803d;">(Tại hộp thoại in, chọn "Save as PDF" / "Lưu dưới dạng PDF" để xuất PDF chuẩn đẹp)</p>
+  </div>
+
+  <h1>BÁO CÁO QUÁ TRÌNH ĐÀO TẠO CỦA HỌC VIÊN</h1>
+  <div class="date-sub">(Ngày báo cáo: ${reportDate || '...... / ...... / 2026'})</div>
+
+  <div class="section-title">I. Thông tin học viên:</div>
+  <table style="border: 1px solid #000;">
+    <tr>
+      <td style="width: 72%; vertical-align: top; padding: 12px; border-right: 1px solid #000;">
+        <p style="margin: 4px 0;"><strong>1. Họ và tên:</strong> ${studentName}</p>
+        <p style="margin: 4px 0;"><strong>2. Mã học viên:</strong> ${studentCode}</p>
+        <p style="margin: 4px 0;"><strong>3. Ngày sinh:</strong> ${studentDob}</p>
+        <p style="margin: 4px 0;"><strong>4. Mã khóa học:</strong> ${courseCode}</p>
+        <p style="margin: 4px 0;"><strong>5. Hạng đào tạo:</strong> Hạng ${licenseTier}</p>
+        <p style="margin: 4px 0;"><strong>6. Cơ sở đào tạo:</strong> ${trainingCenter}</p>
+      </td>
+      <td style="width: 28%; text-align: center; vertical-align: middle; padding: 10px;">
+        <div style="width: 120px; height: 160px; border: 1px solid #000; margin: 0 auto; display: flex; align-items: center; justify-content: center; background: #fafafa; font-weight: bold; font-size: 12px;">
+          ẢNH THẺ 3x4
+        </div>
+      </td>
+    </tr>
+  </table>
+
+  <div class="section-title">II. Thông tin quá trình đào tạo:</div>
+  <table>
+    <thead>
+      <tr style="background-color: #f5f5f5;">
+        <th style="width: 10%; text-align: center;">STT</th>
+        <th style="width: 62%; text-align: center;">Nội dung đào tạo</th>
+        <th style="width: 28%; text-align: center;">Thời lượng đào tạo</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${tableRows}
+      <tr>
+        <td colspan="2" style="text-align: right; font-weight: bold; padding: 8px 12px;">Tổng số thời gian:</td>
+        <td style="text-align: center; font-weight: bold;">${customTotalHours}</td>
+      </tr>
+      <tr>
+        <td colspan="2" style="text-align: right; font-weight: bold; padding: 8px 12px;">Kết luận:</td>
+        <td style="text-align: center; font-weight: bold;">${conclusion}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="signature">
+    <div>
+      <div class="sig-title">XÁC NHẬN CỦA CƠ SỞ ĐÀO TẠO</div>
+      <div class="sig-note">(Ký, ghi rõ họ tên và đóng dấu)</div>
+      <div class="sig-space"></div>
+      <div style="font-weight: bold;">${trainingCenter}</div>
+    </div>
+    <div>
+      <div class="sig-title">XÁC NHẬN CỦA HỌC VIÊN</div>
+      <div class="sig-note">(Ký, ghi rõ họ tên)</div>
+      <div class="sig-space"></div>
+      <div style="font-weight: bold; text-transform: uppercase;">${studentName}</div>
+    </div>
+  </div>
+</body>
+</html>`;
+
+    const blob = new Blob([standaloneHtml], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `BaoCao_DaoTao_${student?.username || studentCode}.html`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -240,22 +400,38 @@ export default function StudentTrainingReport({
           </div>
 
           {/* Các nút hành động chính */}
-          <div className="flex items-center gap-2.5">
-            <button
-              onClick={handlePrint}
-              type="button"
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white text-xs font-bold rounded-xl shadow-md flex items-center transition-all gap-1.5"
-            >
-              <Printer className="w-4 h-4" /> In Báo Cáo / Xuất PDF (A4)
-            </button>
+          <div className="flex flex-col sm:flex-row items-end sm:items-center gap-2">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handlePrint}
+                type="button"
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white text-xs font-bold rounded-xl shadow-md flex items-center transition-all gap-1.5"
+                title="Mở hộp thoại in và chọn 'Lưu dưới dạng PDF'"
+              >
+                <Printer className="w-4 h-4" /> In / Lưu PDF (A4)
+              </button>
 
-            <button
-              onClick={handleExportWord}
-              type="button"
-              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-bold rounded-xl shadow-md flex items-center transition-all gap-1.5"
-            >
-              <FileText className="w-4 h-4" /> Xuất Word (.DOC)
-            </button>
+              <button
+                onClick={handleExportWord}
+                type="button"
+                className="px-3.5 py-2 bg-blue-800 hover:bg-blue-900 active:scale-95 text-white text-xs font-bold rounded-xl shadow-md flex items-center transition-all gap-1.5"
+                title="Tải file Word chuẩn mở trực tiếp trên Microsoft Word"
+              >
+                <FileText className="w-4 h-4" /> Tải Word (.DOC)
+              </button>
+
+              <button
+                onClick={handleExportHtml}
+                type="button"
+                className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-bold rounded-xl shadow-md flex items-center transition-all gap-1.5"
+                title="Tải file HTML độc lập mở trên mọi trình duyệt không cần Word"
+              >
+                <Download className="w-4 h-4" /> Tải HTML
+              </button>
+            </div>
+            <p className="text-[10px] text-slate-500 italic mt-0.5">
+              (Chọn <strong>"Lưu dưới dạng PDF"</strong> tại hộp thoại In để lưu file PDF sắc nét)
+            </p>
           </div>
         </div>
       )}

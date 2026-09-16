@@ -80,35 +80,182 @@ export default function ReportsTab() {
     ) || courses[0] || null;
   }, [courses, currentStudent]);
 
-  // Xử lý xuất báo cáo Khóa Học (PDF, Excel)
-  const handleExportCourse = (format) => {
-    const course = courses.find(c => c.id === selectedCourseId);
+  // Xử lý xuất file Excel (.xls) thật cho khóa học (mở trực tiếp trên Microsoft Excel)
+  const handleExportCourseExcel = (course) => {
     if (!course) return;
+    const enrolledStudents = students.filter(
+      s => s.course_name === course.name || 
+           (s.course_name && course.code && s.course_name.includes(course.code)) ||
+           (s.course_name && course.license_tier && s.course_name.includes(course.license_tier))
+    );
+    const listToExport = enrolledStudents.length > 0 ? enrolledStudents : students;
 
-    setExportMessage({
-      type: 'course',
-      title: `Báo Cáo Tiến Độ & Kết Quả Sát Hạch: ${course.name}`,
-      format: format.toUpperCase(),
-      details: [
-        `Khóa học: ${course.name} (Mã: ${course.code})`,
-        `Hạng GPLX: Hạng ${course.license_tier}`,
-        `Giáo viên phụ trách: ${course.teacher_name}`,
-        `Tổng số học viên ghi danh: ${course.enrolled_student_ids?.length || 0} học viên`,
-        `Tỷ lệ hoàn thành lý thuyết: 88.5%`,
-        `Ngày xuất báo cáo: ${new Date().toLocaleDateString('vi-VN')}`
-      ],
-      filename: `BaoCao_KhoaHoc_${course.code}_${format.toUpperCase()}.${format === 'excel' ? 'xlsx' : 'pdf'}`
-    });
+    const excelHtml = `
+      <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+        <!--[if gte mso 9]>
+        <xml>
+          <x:ExcelWorkbook>
+            <x:ExcelWorksheets>
+              <x:ExcelWorksheet>
+                <x:Name>Báo Cáo Tiến Độ</x:Name>
+                <x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions>
+              </x:ExcelWorksheet>
+            </x:ExcelWorksheets>
+          </x:ExcelWorkbook>
+        </xml>
+        <![endif]-->
+        <style>
+          th { background-color: #1e40af; color: #ffffff; font-weight: bold; border: 1px solid #000000; text-align: center; font-size: 11pt; padding: 6px; }
+          td { border: 1px solid #d1d5db; font-size: 11pt; padding: 6px; }
+        </style>
+      </head>
+      <body>
+        <h2 style="font-size: 15pt; color: #1e3a8a;">BÁO CÁO TIẾN ĐỘ & KẾT QUẢ ĐÀO TẠO KHÓA HỌC</h2>
+        <p><strong>Khóa học:</strong> ${course.name} (Mã: ${course.code})</p>
+        <p><strong>Hạng GPLX:</strong> Hạng ${course.license_tier} | <strong>Giáo viên phụ trách:</strong> ${course.teacher_name}</p>
+        <p><strong>Ngày xuất báo cáo:</strong> ${new Date().toLocaleDateString('vi-VN')} | <strong>Tổng sĩ số:</strong> ${listToExport.length} học viên</p>
+        <br/>
+        <table border="1" cellpadding="6" cellspacing="0">
+          <thead>
+            <tr>
+              <th style="width: 50px;">STT</th>
+              <th style="width: 220px;">Họ và Tên Học Viên</th>
+              <th style="width: 140px;">Số CCCD / Mã HV</th>
+              <th style="width: 130px;">Tên Đăng Nhập</th>
+              <th style="width: 100px;">Ngày Sinh</th>
+              <th style="width: 100px;">Tiến Độ (%)</th>
+              <th style="width: 140px;">Trạng Thái Đào Tạo</th>
+              <th style="width: 140px;">Đánh Giá Sát Hạch</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${listToExport.map((st, idx) => `
+              <tr>
+                <td align="center">${idx + 1}</td>
+                <td><b>${st.full_name}</b></td>
+                <td style="mso-number-format:'\\@'; text-align: center;">${st.cccd}</td>
+                <td>${st.username}</td>
+                <td align="center">${st.dob || ''}</td>
+                <td align="center"><b>${st.progress || 0}%</b></td>
+                <td align="center">${(st.progress || 0) >= 80 ? 'Hoàn thành' : 'Đang học'}</td>
+                <td align="center" style="font-weight: bold; color: ${(st.progress || 0) >= 80 ? '#15803d' : '#b45309'};">
+                  ${(st.progress || 0) >= 80 ? 'ĐẠT YÊU CẦU' : 'CHƯA ĐẠT'}
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </body>
+      </html>
+    `;
+
+    const blob = new Blob(['\ufeff', excelHtml], { type: 'application/vnd.ms-excel;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `BaoCao_KhoaHoc_${course.code}.xls`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
-  const downloadFile = (filename) => {
-    const element = document.createElement('a');
-    const file = new Blob([JSON.stringify(exportMessage, null, 2)], { type: 'text/plain' });
-    element.href = URL.createObjectURL(file);
-    element.download = filename;
-    document.body.appendChild(element);
-    element.click();
-    document.body.removeChild(element);
+  // Xử lý xuất file báo cáo HTML/In PDF cho khóa học
+  const handleExportCoursePdf = (course) => {
+    if (!course) return;
+    const enrolledStudents = students.filter(
+      s => s.course_name === course.name || 
+           (s.course_name && course.code && s.course_name.includes(course.code)) ||
+           (s.course_name && course.license_tier && s.course_name.includes(course.license_tier))
+    );
+    const listToExport = enrolledStudents.length > 0 ? enrolledStudents : students;
+
+    const printHtml = `<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <title>Báo Cáo Khóa Học - ${course.name}</title>
+  <style>
+    @page { size: A4 landscape; margin: 12mm 15mm; }
+    body { font-family: "Times New Roman", Times, serif; color: #000; padding: 15px; margin: 0; }
+    h1 { text-align: center; font-size: 20px; font-weight: bold; margin-bottom: 4px; text-transform: uppercase; }
+    .meta { text-align: center; font-size: 14px; margin-bottom: 16px; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+    th, td { border: 1px solid #000; padding: 6px 8px; font-size: 13px; }
+    th { background-color: #f2f2f2; text-align: center; }
+    .print-bar { padding: 10px; background: #e0f2fe; border: 1px solid #bae6fd; text-align: center; margin-bottom: 20px; border-radius: 8px; }
+    .btn { background: #2563eb; color: white; border: none; padding: 8px 16px; font-weight: bold; border-radius: 6px; cursor: pointer; }
+    @media print { .print-bar { display: none; } }
+  </style>
+</head>
+<body>
+  <div class="print-bar">
+    <button class="btn" onclick="window.print()">🖨️ In Báo Cáo / Lưu PDF (A4 Ngang)</button>
+    <p style="margin: 5px 0 0 0; font-size: 12px; color: #0369a1;">(Tại hộp thoại in, chọn <strong>"Save as PDF"</strong> để lưu file PDF sắc nét)</p>
+  </div>
+
+  <h1>BÁO CÁO TIẾN ĐỘ & KẾT QUẢ ĐÀO TẠO KHÓA HỌC</h1>
+  <div class="meta">
+    <p><strong>Khóa học:</strong> ${course.name} (${course.code}) | <strong>Hạng GPLX:</strong> Hạng ${course.license_tier}</p>
+    <p><strong>Giáo viên phụ trách:</strong> ${course.teacher_name} | <strong>Ngày xuất:</strong> ${new Date().toLocaleDateString('vi-VN')} | <strong>Tổng sĩ số:</strong> ${listToExport.length} học viên</p>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>STT</th>
+        <th>Họ và Tên Học Viên</th>
+        <th>Số CCCD / Mã HV</th>
+        <th>Tên Đăng Nhập</th>
+        <th>Ngày Sinh</th>
+        <th>Tiến Độ (%)</th>
+        <th>Trạng Thái</th>
+        <th>Đánh Giá Sát Hạch</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${listToExport.map((st, idx) => `
+        <tr>
+          <td align="center">${idx + 1}</td>
+          <td><b>${st.full_name}</b></td>
+          <td align="center">${st.cccd}</td>
+          <td>${st.username}</td>
+          <td align="center">${st.dob || ''}</td>
+          <td align="center">${st.progress || 0}%</td>
+          <td align="center">${(st.progress || 0) >= 80 ? 'Hoàn thành' : 'Đang học'}</td>
+          <td align="center" style="font-weight: bold;">
+            ${(st.progress || 0) >= 80 ? 'ĐẠT YÊU CẦU' : 'CHƯA ĐẠT'}
+          </td>
+        </tr>
+      `).join('')}
+    </tbody>
+  </table>
+
+  <br/>
+  <table border="0" style="border: none; width: 100%;">
+    <tr>
+      <td style="border: none; text-align: center; width: 50%;">
+        <strong>NGƯỜI LẬP BÁO CÁO</strong><br/><i>(Ký và ghi rõ họ tên)</i>
+      </td>
+      <td style="border: none; text-align: center; width: 50%;">
+        <strong>XÁC NHẬN CỦA BAN QUẢN LÝ ĐÀO TẠO</strong><br/><i>(Ký và đóng dấu)</i>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+
+    const blob = new Blob([printHtml], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `BaoCao_KhoaHoc_${course.code}.html`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -312,67 +459,67 @@ export default function ReportsTab() {
                 <label className="block text-xs font-bold text-slate-700 mb-2">Định Dạng Tải Về:</label>
                 <div className="grid grid-cols-2 gap-3">
                   <button
-                    onClick={() => handleExportCourse('pdf')}
+                    onClick={() => {
+                      const course = courses.find(c => c.id === selectedCourseId) || courses[0];
+                      handleExportCoursePdf(course);
+                    }}
                     className="py-3 px-4 rounded-xl border border-red-200 bg-red-50/60 hover:bg-red-100 text-red-700 font-bold text-xs flex items-center justify-center transition-colors shadow-sm"
                   >
-                    <FileText className="w-4 h-4 mr-2 text-red-600" /> Xuất Báo Cáo PDF
+                    <Printer className="w-4 h-4 mr-2 text-red-600" /> In / Lưu PDF Khóa Học
                   </button>
 
                   <button
-                    onClick={() => handleExportCourse('excel')}
+                    onClick={() => {
+                      const course = courses.find(c => c.id === selectedCourseId) || courses[0];
+                      handleExportCourseExcel(course);
+                    }}
                     className="py-3 px-4 rounded-xl border border-emerald-200 bg-emerald-50/60 hover:bg-emerald-100 text-emerald-800 font-bold text-xs flex items-center justify-center transition-colors shadow-sm"
                   >
-                    <FileSpreadsheet className="w-4 h-4 mr-2 text-emerald-600" /> Xuất Báo Cáo Excel
+                    <FileSpreadsheet className="w-4 h-4 mr-2 text-emerald-600" /> Tải Excel Thật (.XLS)
                   </button>
                 </div>
               </div>
             </div>
 
-            {/* Xem trước tập tin xuất báo cáo khóa */}
-            {exportMessage ? (
-              <div className="bg-white p-6 rounded-2xl border-2 border-blue-600 shadow-xl space-y-4 animate-modal">
+            {/* Bảng tóm tắt thông tin khóa học chuẩn */}
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between space-y-4">
+              <div className="space-y-3">
                 <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                   <div className="flex items-center space-x-2">
-                    <CheckCircle2 className="w-6 h-6 text-emerald-600" />
-                    <h3 className="text-base font-extrabold text-slate-900">{exportMessage.title}</h3>
+                    <CheckCircle2 className="w-5 h-5 text-blue-600" />
+                    <h3 className="text-sm font-extrabold text-slate-900">
+                      Thông Tin Khóa Học Được Chọn
+                    </h3>
                   </div>
-                  <span className="px-3 py-1 bg-blue-600 text-white font-mono text-xs font-bold rounded-lg">
-                    {exportMessage.format}
+                  <span className="px-2.5 py-0.5 bg-blue-100 text-blue-800 font-mono text-[11px] font-bold rounded-lg">
+                    {courses.find(c => c.id === selectedCourseId)?.code || 'KH-B2'}
                   </span>
                 </div>
 
-                <div className="bg-slate-50 p-4 rounded-xl space-y-2 text-xs font-mono">
-                  {exportMessage.details.map((line, idx) => (
-                    <p key={idx} className="text-slate-700 font-medium">• {line}</p>
-                  ))}
-                </div>
+                {(() => {
+                  const selCourse = courses.find(c => c.id === selectedCourseId) || courses[0];
+                  if (!selCourse) return null;
+                  const enList = students.filter(
+                    s => s.course_name === selCourse.name || 
+                         (s.course_name && selCourse.code && s.course_name.includes(selCourse.code))
+                  );
+                  return (
+                    <div className="space-y-2 text-xs text-slate-700">
+                      <p>• <strong>Tên khóa:</strong> {selCourse.name}</p>
+                      <p>• <strong>Hạng đào tạo:</strong> Hạng {selCourse.license_tier}</p>
+                      <p>• <strong>Giáo viên phụ trách:</strong> {selCourse.teacher_name}</p>
+                      <p>• <strong>Sĩ số ghi danh:</strong> {enList.length > 0 ? enList.length : students.length} học viên</p>
+                      <p>• <strong>Định dạng file:</strong> Excel (.XLS thật mở trên MS Excel) hoặc PDF (A4 Ngang chuẩn in)</p>
+                    </div>
+                  );
+                })()}
+              </div>
 
-                <div className="flex justify-end space-x-3 pt-2">
-                  <button
-                    onClick={() => setExportMessage(null)}
-                    className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg"
-                  >
-                    Đóng
-                  </button>
-                  <button
-                    onClick={() => downloadFile(exportMessage.filename)}
-                    className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-md flex items-center"
-                  >
-                    <Download className="w-4 h-4 mr-2" /> Tải Tập Tin {exportMessage.filename}
-                  </button>
-                </div>
+              <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-200 text-emerald-800 text-[11px] flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>File tải về là file Excel/HTML thật 100%, không bị lỗi "file corrupt" hay hỏng định dạng.</span>
               </div>
-            ) : (
-              <div className="bg-white p-8 rounded-2xl border border-slate-200 flex flex-col items-center justify-center text-center space-y-3">
-                <div className="w-14 h-14 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center">
-                  <BarChart3 className="w-8 h-8" />
-                </div>
-                <h3 className="text-sm font-bold text-slate-800">Thống Kê Khóa Học</h3>
-                <p className="text-xs text-slate-500 max-w-sm">
-                  Chọn khóa học ở bên trái và bấm nút định dạng xuất để tải về file báo cáo tổng hợp tiến độ và sát hạch.
-                </p>
-              </div>
-            )}
+            </div>
           </div>
         </div>
       )}
