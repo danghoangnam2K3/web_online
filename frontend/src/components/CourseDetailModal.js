@@ -20,6 +20,7 @@ import {
   ChevronRight,
   Sliders,
   Eye,
+  Search,
   Edit3,
   Save,
   AlertCircle,
@@ -104,6 +105,8 @@ export default function CourseDetailModal({ isOpen, onClose, course: initialCour
   const [allStudents, setAllStudents] = useState([]);
   const [unassignedStudents, setUnassignedStudents] = useState([]);
   const [selectedStudentIds, setSelectedStudentIds] = useState([]);
+  const [unassignedSearch, setUnassignedSearch] = useState('');
+  const [lastClickedIndex, setLastClickedIndex] = useState(null);
   const [enrolling, setEnrolling] = useState(false);
   const [unenrollingId, setUnenrollingId] = useState(null);
   const [studentSearch, setStudentSearch] = useState('');
@@ -112,6 +115,9 @@ export default function CourseDetailModal({ isOpen, onClose, course: initialCour
     if (isOpen && initialCourse) {
       setCourse(initialCourse);
       loadStudentsData();
+      setSelectedStudentIds([]);
+      setUnassignedSearch('');
+      setLastClickedIndex(null);
       setEditForm({
         name: initialCourse.name || '',
         description: initialCourse.description || '',
@@ -552,10 +558,63 @@ export default function CourseDetailModal({ isOpen, onClose, course: initialCour
     }
   };
 
+  // Danh sách học viên chưa có khóa được lọc theo từ khóa tìm kiếm
+  const filteredUnassigned = React.useMemo(() => {
+    if (!unassignedSearch.trim()) return unassignedStudents;
+    const q = unassignedSearch.toLowerCase().trim();
+    return unassignedStudents.filter(s =>
+      (s.full_name && s.full_name.toLowerCase().includes(q)) ||
+      (s.cccd && s.cccd.toLowerCase().includes(q)) ||
+      (s.username && s.username.toLowerCase().includes(q)) ||
+      (s.phone && s.phone.toLowerCase().includes(q)) ||
+      (s.email && s.email.toLowerCase().includes(q))
+    );
+  }, [unassignedStudents, unassignedSearch]);
+
+  const isAllSelected = filteredUnassigned.length > 0 && filteredUnassigned.every(st => selectedStudentIds.includes(st.id));
+  const isSomeSelected = filteredUnassigned.some(st => selectedStudentIds.includes(st.id));
+
+  // Chọn / Bỏ chọn tất cả học viên trong danh sách đang hiển thị
+  const handleToggleSelectAll = () => {
+    if (isAllSelected) {
+      const currentFilteredIds = new Set(filteredUnassigned.map(s => s.id));
+      setSelectedStudentIds(prev => prev.filter(id => !currentFilteredIds.has(id)));
+    } else {
+      const newIds = new Set([...selectedStudentIds, ...filteredUnassigned.map(s => s.id)]);
+      setSelectedStudentIds(Array.from(newIds));
+    }
+  };
+
+  const handleClearSelection = () => {
+    setSelectedStudentIds([]);
+    setLastClickedIndex(null);
+  };
+
   const toggleSelectStudent = (id) => {
     setSelectedStudentIds(prev =>
       prev.includes(id) ? prev.filter(s => s !== id) : [...prev, id]
     );
+  };
+
+  // Chọn khoảng (Range select) khi giữ Shift
+  const handleStudentRowClick = (e, st, idx) => {
+    if (e.shiftKey && lastClickedIndex !== null && lastClickedIndex !== idx) {
+      const start = Math.min(lastClickedIndex, idx);
+      const end = Math.max(lastClickedIndex, idx);
+      const rangeSlice = filteredUnassigned.slice(start, end + 1);
+      const rangeIds = rangeSlice.map(s => s.id);
+
+      const isTargetChecked = selectedStudentIds.includes(st.id);
+      if (!isTargetChecked) {
+        setSelectedStudentIds(prev => Array.from(new Set([...prev, ...rangeIds])));
+      } else {
+        const removeSet = new Set(rangeIds);
+        setSelectedStudentIds(prev => prev.filter(id => !removeSet.has(id)));
+      }
+    } else {
+      toggleSelectStudent(st.id);
+    }
+    setLastClickedIndex(idx);
   };
 
   const totalLessons = (course.chapters || []).reduce(
@@ -1389,7 +1448,8 @@ export default function CourseDetailModal({ isOpen, onClose, course: initialCour
               {/* ── BƯỚC 4: ADD HỌC VIÊN (Admin only) ───────────── */}
               {isAdmin && (
                 <div className="bg-white rounded-xl border border-blue-200 shadow-sm overflow-hidden bg-gradient-to-br from-blue-50/30 to-white">
-                  <div className="p-4 border-b border-blue-100 bg-blue-50/40 flex items-center justify-between">
+                  {/* Header Bước 4 */}
+                  <div className="p-4 border-b border-blue-100 bg-blue-50/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <div className="flex items-center gap-3">
                       <div className="w-8 h-8 rounded-lg bg-emerald-600 text-white font-extrabold flex items-center justify-center text-sm shadow">
                         4
@@ -1401,56 +1461,141 @@ export default function CourseDetailModal({ isOpen, onClose, course: initialCour
                         </p>
                       </div>
                     </div>
-                    <button
-                      onClick={handleEnrollStudents}
-                      disabled={enrolling || selectedStudentIds.length === 0}
-                      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 shadow whitespace-nowrap transition-colors"
-                    >
-                      <UserPlus className="w-4 h-4" />
-                      {enrolling ? 'Đang thêm...' : `Thêm (${selectedStudentIds.length}) HV`}
-                    </button>
+
+                    <div className="flex items-center gap-2 self-end sm:self-auto">
+                      {selectedStudentIds.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={handleClearSelection}
+                          className="px-3 py-1.5 text-xs font-semibold text-slate-600 hover:text-red-600 hover:bg-red-50 rounded-lg border border-slate-200 transition-colors"
+                        >
+                          Bỏ chọn
+                        </button>
+                      )}
+                      <button
+                        onClick={handleEnrollStudents}
+                        disabled={enrolling || selectedStudentIds.length === 0}
+                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 shadow whitespace-nowrap transition-colors"
+                      >
+                        <UserPlus className="w-4 h-4" />
+                        {enrolling ? 'Đang thêm...' : `Thêm (${selectedStudentIds.length}) HV`}
+                      </button>
+                    </div>
                   </div>
 
-                  <div className="p-5">
-                    <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
-                      {unassignedStudents.length > 0 ? (
-                        unassignedStudents.map((st) => {
+                  {/* Thanh công cụ Chọn nhiều & Tìm kiếm nhanh */}
+                  {unassignedStudents.length > 0 && (
+                    <div className="px-4 py-3 bg-slate-50/80 border-b border-blue-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="flex items-center gap-3 flex-wrap">
+                        <label className="flex items-center gap-2 cursor-pointer select-none text-xs font-bold text-slate-800 hover:text-emerald-700">
+                          <input
+                            type="checkbox"
+                            checked={isAllSelected}
+                            ref={el => {
+                              if (el) el.indeterminate = isSomeSelected && !isAllSelected;
+                            }}
+                            onChange={handleToggleSelectAll}
+                            className="w-4 h-4 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500 cursor-pointer"
+                          />
+                          <span>Chọn tất cả ({filteredUnassigned.length})</span>
+                        </label>
+
+                        {selectedStudentIds.length > 0 ? (
+                          <span className="text-[11px] font-bold text-emerald-800 bg-emerald-100 px-2.5 py-0.5 rounded-full border border-emerald-200">
+                            Đã chọn {selectedStudentIds.length} / {unassignedStudents.length}
+                          </span>
+                        ) : (
+                          <span className="text-[11px] text-slate-400 hidden sm:inline">
+                            (Mẹo: Giữ <kbd className="px-1 py-0.5 bg-slate-200 text-slate-700 rounded text-[10px] font-mono">Shift</kbd> để chọn dải học viên)
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Ô tìm kiếm học viên chưa có khóa */}
+                      <div className="relative w-full sm:w-60">
+                        <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                        <input
+                          type="text"
+                          value={unassignedSearch}
+                          onChange={(e) => setUnassignedSearch(e.target.value)}
+                          placeholder="Tìm tên, CCCD, username..."
+                          className="w-full pl-8 pr-7 py-1.5 text-xs bg-white border border-slate-200 rounded-lg outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all text-slate-800 placeholder:text-slate-400"
+                        />
+                        {unassignedSearch && (
+                          <button
+                            type="button"
+                            onClick={() => setUnassignedSearch('')}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Danh sách học viên */}
+                  <div className="p-4">
+                    <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                      {filteredUnassigned.length > 0 ? (
+                        filteredUnassigned.map((st, idx) => {
                           const isChecked = selectedStudentIds.includes(st.id);
+                          const initial = ((st.full_name || 'H')[0] || 'H').toUpperCase();
                           return (
                             <div
                               key={st.id}
-                              onClick={() => toggleSelectStudent(st.id)}
-                              className={`p-3 rounded-lg border transition-all cursor-pointer flex items-center justify-between ${
+                              onClick={(e) => handleStudentRowClick(e, st, idx)}
+                              className={`p-3 rounded-xl border transition-all cursor-pointer select-none flex items-center justify-between ${
                                 isChecked
-                                  ? 'border-emerald-500 bg-emerald-50/70 shadow-sm'
-                                  : 'border-slate-200 bg-white hover:bg-slate-50'
+                                  ? 'border-emerald-500 bg-emerald-50/80 shadow-xs ring-1 ring-emerald-400'
+                                  : 'border-slate-200 bg-white hover:bg-slate-50 hover:border-slate-300'
                               }`}
                             >
-                              <div className="flex items-center gap-3">
+                              <div className="flex items-center gap-3 min-w-0">
                                 <input
                                   type="checkbox"
                                   checked={isChecked}
                                   onChange={() => {}}
-                                  className="w-4 h-4 text-emerald-600 rounded"
+                                  className="w-4 h-4 text-emerald-600 rounded cursor-pointer border-slate-300 focus:ring-emerald-500 pointer-events-none shrink-0"
                                 />
-                                <img
-                                  src={st.avatar_url}
-                                  alt={st.full_name}
-                                  className="w-8 h-8 rounded-full object-cover"
-                                />
-                                <div>
-                                  <span className="font-bold text-xs text-slate-900 block">{st.full_name}</span>
-                                  <span className="text-[11px] text-slate-500">
-                                    CCCD: {st.cccd} • Tên ĐN: {st.username}
+                                {st.avatar_url ? (
+                                  <img
+                                    src={st.avatar_url}
+                                    alt={st.full_name}
+                                    onError={(e) => {
+                                      e.currentTarget.style.display = 'none';
+                                      if (e.currentTarget.nextSibling) {
+                                        e.currentTarget.nextSibling.style.display = 'flex';
+                                      }
+                                    }}
+                                    className="w-8 h-8 rounded-full object-cover border border-slate-200 shrink-0"
+                                  />
+                                ) : null}
+                                <div
+                                  className={`w-8 h-8 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 text-white font-bold text-xs items-center justify-center shrink-0 shadow-xs ${
+                                    st.avatar_url ? 'hidden' : 'flex'
+                                  }`}
+                                >
+                                  {initial}
+                                </div>
+                                <div className="min-w-0">
+                                  <span className="font-bold text-xs text-slate-900 block truncate">{st.full_name}</span>
+                                  <span className="text-[11px] text-slate-500 block truncate">
+                                    CCCD: <strong className="text-slate-700 font-mono">{st.cccd}</strong> • Tên ĐN: @{st.username}
+                                    {st.phone && ` • SĐT: ${st.phone}`}
                                   </span>
                                 </div>
                               </div>
-                              <span className="px-2.5 py-0.5 bg-amber-100 text-amber-800 text-[10px] font-bold rounded-full">
+                              <span className="px-2.5 py-0.5 bg-amber-100 text-amber-800 text-[10px] font-bold rounded-full shrink-0 ml-2">
                                 Chưa có khóa
                               </span>
                             </div>
                           );
                         })
+                      ) : unassignedStudents.length > 0 ? (
+                        <p className="text-xs text-slate-500 italic p-4 text-center border border-dashed rounded-lg bg-white">
+                          Không tìm thấy học viên nào phù hợp với từ khóa "{unassignedSearch}".
+                        </p>
                       ) : (
                         <p className="text-xs text-slate-500 italic p-4 text-center border border-dashed rounded-lg bg-white">
                           Tất cả học viên đã được phân bổ vào các khóa học. (Tạo thêm tài khoản tại mục "Học viên" để thêm mới.)
