@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import { X, FileSpreadsheet, Download, Upload, CheckCircle2, AlertTriangle, AlertCircle, Users, BookOpen, ArrowRight, Loader2, RefreshCw } from 'lucide-react';
+import { X, FileSpreadsheet, Download, Upload, CheckCircle2, AlertTriangle, AlertCircle, Users, BookOpen, ArrowRight, Loader2, RefreshCw, UserPlus } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { fetchCourses, createStudentsBatchApi } from '../lib/api';
 
@@ -15,7 +15,26 @@ export default function ImportStudentsModal({ isOpen, onClose, onSuccess }) {
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [importResult, setImportResult] = useState(null);
+  const [fileError, setFileError] = useState('');
   const fileInputRef = useRef(null);
+
+  // Ngăn chặn trình duyệt mở file tự động nếu người dùng kéo thả trượt ra ngoài vùng dropzone
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const preventDefault = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    };
+
+    window.addEventListener('dragover', preventDefault);
+    window.addEventListener('drop', preventDefault);
+
+    return () => {
+      window.removeEventListener('dragover', preventDefault);
+      window.removeEventListener('drop', preventDefault);
+    };
+  }, [isOpen]);
 
   useEffect(() => {
     if (isOpen) {
@@ -26,6 +45,7 @@ export default function ImportStudentsModal({ isOpen, onClose, onSuccess }) {
       setFile(null);
       setFileName('');
       setParsedRows([]);
+      setFileError('');
       setImportResult(null);
       setSubmitting(false);
     }
@@ -87,16 +107,31 @@ export default function ImportStudentsModal({ isOpen, onClose, onSuccess }) {
     XLSX.writeFile(workbook, 'Mau_Nhap_Hoc_Vien_DriveEdu.xlsx');
   };
 
+  // Helper tìm giá trị cột linh hoạt không phân biệt hoa thường và khoảng trắng
+  const findRowValue = (row, candidates) => {
+    if (!row || typeof row !== 'object') return '';
+    const keys = Object.keys(row);
+    for (const cand of candidates) {
+      const cleanCand = cand.toLowerCase().replace(/[\s_\-\:]+/g, '');
+      const matchedKey = keys.find(k => k.toLowerCase().replace(/[\s_\-\:]+/g, '') === cleanCand);
+      if (matchedKey && row[matchedKey] !== undefined && row[matchedKey] !== null) {
+        return row[matchedKey];
+      }
+    }
+    return '';
+  };
+
   // ─── 2. ĐỌC VÀ CHUẨN HÓA DỮ LIỆU TỪ FILE EXCEL ──────────────────────────────
   const processExcelFile = (uploadedFile) => {
     if (!uploadedFile) return;
 
+    setFileError('');
     const validExtensions = ['.xlsx', '.xls', '.csv'];
     const lowerName = uploadedFile.name.toLowerCase();
     const isValidExt = validExtensions.some(ext => lowerName.endsWith(ext));
 
     if (!isValidExt) {
-      alert('Vui lòng chọn file có định dạng Excel (.xlsx, .xls) hoặc .csv!');
+      setFileError('Vui lòng chọn file có định dạng Excel (.xlsx, .xls) hoặc .csv!');
       return;
     }
 
@@ -110,12 +145,16 @@ export default function ImportStudentsModal({ isOpen, onClose, onSuccess }) {
       try {
         const data = new Uint8Array(e.target.result);
         const workbook = XLSX.read(data, { type: 'array', cellDates: true });
+        if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
+          throw new Error('File Excel không có sheet nào!');
+        }
+
         const firstSheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[firstSheetName];
         const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
 
         if (!jsonData || jsonData.length === 0) {
-          alert('File Excel không có dữ liệu hoặc bảng tính trống!');
+          setFileError('File Excel không có dữ liệu hoặc bảng tính trống!');
           setParsedRows([]);
           setLoading(false);
           return;
@@ -123,22 +162,43 @@ export default function ImportStudentsModal({ isOpen, onClose, onSuccess }) {
 
         // Chuẩn hóa và gán nhãn trạng thái hợp lệ
         const rows = jsonData.map((row, idx) => {
-          // Trích xuất linh hoạt theo các tiêu đề tiếng Việt hoặc tiếng Anh
-          const full_name = (row['Họ và tên'] || row['Họ tên'] || row['Họ và Tên'] || row['Full Name'] || row['name'] || '').toString().trim();
-          let cccd = (row['Số CCCD'] || row['CCCD'] || row['Số CMND'] || row['CMND'] || row['cccd'] || '').toString().trim();
-          let username = (row['Tên đăng nhập'] || row['Tài khoản'] || row['Username'] || row['username'] || '').toString().trim().toLowerCase();
-          const password = (row['Mật khẩu'] || row['Password'] || row['password'] || '').toString().trim();
-          let dob = (row['Ngày sinh'] || row['Ngày Sinh'] || row['dob'] || row['DOB'] || '').toString().trim();
-          const phone = (row['Số điện thoại'] || row['SĐT'] || row['Điện thoại'] || row['Phone'] || row['phone'] || '').toString().trim();
-          const email = (row['Email'] || row['email'] || '').toString().trim();
-          const course_name = (row['Khóa học'] || row['Khóa Học'] || row['Khóa'] || row['course_name'] || '').toString().trim();
-
-          // Chuẩn hóa định dạng ngày sinh
-          if (dob instanceof Date) {
+          const full_name = String(findRowValue(row, ['Họ và tên', 'Họ tên', 'Họ và Tên', 'Full Name', 'Name', 'Tên']) || '').trim();
+          let cccd = String(findRowValue(row, ['Số CCCD', 'CCCD', 'Số CMND', 'CMND', 'Mã định danh', 'Identity']) || '').trim();
+          let username = String(findRowValue(row, ['Tên đăng nhập', 'Tài khoản', 'Username', 'Ten dang nhap', 'Login']) || '').trim().toLowerCase();
+          const password = String(findRowValue(row, ['Mật khẩu', 'Password', 'Pass', 'Mat khau']) || '').trim();
+          
+          let rawDob = findRowValue(row, ['Ngày sinh', 'Ngày Sinh', 'DOB', 'BirthDate', 'Ngay sinh']);
+          let dob = '';
+          if (rawDob instanceof Date) {
+            if (!isNaN(rawDob.getTime())) {
+              const y = rawDob.getFullYear();
+              const m = String(rawDob.getMonth() + 1).padStart(2, '0');
+              const d = String(rawDob.getDate()).padStart(2, '0');
+              dob = `${y}-${m}-${d}`;
+            }
+          } else if (typeof rawDob === 'number' && rawDob > 10000) {
             try {
-              dob = dob.toISOString().split('T')[0];
-            } catch (e) {}
+              const excelDate = new Date(Math.round((rawDob - 25569) * 86400 * 1000));
+              if (!isNaN(excelDate.getTime())) {
+                const y = excelDate.getFullYear();
+                const m = String(excelDate.getMonth() + 1).padStart(2, '0');
+                const d = String(excelDate.getDate()).padStart(2, '0');
+                dob = `${y}-${m}-${d}`;
+              }
+            } catch (err) {}
+          } else if (rawDob) {
+            const str = String(rawDob).trim();
+            const ddmmyyyy = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+            if (ddmmyyyy) {
+              dob = `${ddmmyyyy[3]}-${ddmmyyyy[2].padStart(2, '0')}-${ddmmyyyy[1].padStart(2, '0')}`;
+            } else {
+              dob = str;
+            }
           }
+
+          const phone = String(findRowValue(row, ['Số điện thoại', 'SĐT', 'Điện thoại', 'Phone', 'SDT', 'Telephone']) || '').trim();
+          const email = String(findRowValue(row, ['Email', 'Thư điện tử', 'Mail']) || '').trim();
+          const course_name = String(findRowValue(row, ['Khóa học', 'Khóa Học', 'Khóa', 'Course', 'Lớp', 'Khoa hoc']) || '').trim();
 
           // Kiểm tra tính hợp lệ
           const errors = [];
@@ -169,10 +229,15 @@ export default function ImportStudentsModal({ isOpen, onClose, onSuccess }) {
         setParsedRows(rows);
       } catch (err) {
         console.error('Lỗi đọc file Excel:', err);
-        alert('Không thể đọc file Excel. Vui lòng kiểm tra lại cấu trúc file!');
+        setFileError('Không thể đọc file Excel. Vui lòng kiểm tra lại định dạng file!');
       } finally {
         setLoading(false);
       }
+    };
+
+    reader.onerror = () => {
+      setFileError('Không thể đọc dữ liệu file!');
+      setLoading(false);
     };
 
     reader.readAsArrayBuffer(uploadedFile);
@@ -180,8 +245,9 @@ export default function ImportStudentsModal({ isOpen, onClose, onSuccess }) {
 
   const handleDrop = (e) => {
     e.preventDefault();
+    e.stopPropagation();
     setIsDragging(false);
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+    if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]) {
       processExcelFile(e.dataTransfer.files[0]);
     }
   };
@@ -322,14 +388,22 @@ export default function ImportStudentsModal({ isOpen, onClose, onSuccess }) {
               <Upload className="w-4 h-4 text-blue-600" /> Bước 2: Tải lên file Excel chứa danh sách học viên
             </h4>
 
+            {fileError && (
+              <div className="mb-3 p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+                <span>{fileError}</span>
+              </div>
+            )}
+
             <div
-              onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
-              onDragLeave={() => setIsDragging(false)}
+              onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); setIsDragging(true); }}
+              onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setIsDragging(true); }}
+              onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setIsDragging(false); }}
               onDrop={handleDrop}
               onClick={() => fileInputRef.current?.click()}
-              className={`border-2 border-dashed rounded-2xl p-6 text-center cursor-pointer transition-all ${
+              className={`border-2 border-dashed rounded-2xl p-6 text-center cursor-pointer transition-all select-none ${
                 isDragging
-                  ? 'border-emerald-500 bg-emerald-50/50 scale-[1.01]'
+                  ? 'border-emerald-500 bg-emerald-50 scale-[1.01] shadow-inner'
                   : fileName
                   ? 'border-emerald-400 bg-emerald-50/20'
                   : 'border-slate-300 hover:border-emerald-400 hover:bg-slate-50'
@@ -347,12 +421,12 @@ export default function ImportStudentsModal({ isOpen, onClose, onSuccess }) {
                 className="hidden"
               />
 
-              <div className="w-12 h-12 mx-auto rounded-2xl bg-emerald-100 text-emerald-700 flex items-center justify-center mb-3">
+              <div className="w-12 h-12 mx-auto rounded-2xl bg-emerald-100 text-emerald-700 flex items-center justify-center mb-3 pointer-events-none">
                 <FileSpreadsheet className="w-6 h-6" />
               </div>
 
               {fileName ? (
-                <div>
+                <div className="pointer-events-none">
                   <p className="text-sm font-bold text-slate-900">{fileName}</p>
                   <p className="text-xs text-emerald-600 font-semibold mt-1">
                     ✓ Đã nhận diện {parsedRows.length} dòng dữ liệu ({validCount} hợp lệ)
@@ -362,7 +436,7 @@ export default function ImportStudentsModal({ isOpen, onClose, onSuccess }) {
                   </span>
                 </div>
               ) : (
-                <div>
+                <div className="pointer-events-none">
                   <p className="text-sm font-bold text-slate-800">
                     Kéo thả file Excel vào đây hoặc <span className="text-emerald-600 underline">Bấm để chọn file</span>
                   </p>
