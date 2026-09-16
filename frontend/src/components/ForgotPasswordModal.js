@@ -15,6 +15,7 @@ export default function ForgotPasswordModal({ isOpen, onClose, defaultIdentity =
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [isResetDone, setIsResetDone] = useState(false);
 
   // Gmail OTP specific states
   const [otpStep, setOtpStep] = useState(1); // 1: enter identity & send OTP, 2: enter OTP & reset password
@@ -45,6 +46,7 @@ export default function ForgotPasswordModal({ isOpen, onClose, defaultIdentity =
   const handleClose = () => {
     setError('');
     setSuccess('');
+    setIsResetDone(false);
     setOtpStep(1);
     setOtpCode('');
     onClose();
@@ -103,6 +105,7 @@ export default function ForgotPasswordModal({ isOpen, onClose, defaultIdentity =
         otp: cleanOtp,
         new_password: newPassword
       });
+      setIsResetDone(true);
       setSuccess(res.message || 'Đổi mật khẩu thành công! Bạn có thể đăng nhập ngay.');
       setTimeout(() => {
         handleClose();
@@ -144,6 +147,7 @@ export default function ForgotPasswordModal({ isOpen, onClose, defaultIdentity =
         cccd: cccd.trim(),
         new_password: newPassword
       });
+      setIsResetDone(true);
       setSuccess(res.message || 'Khôi phục mật khẩu thành công! Bạn có thể đăng nhập ngay.');
       setTimeout(() => {
         handleClose();
@@ -368,14 +372,14 @@ export default function ForgotPasswordModal({ isOpen, onClose, defaultIdentity =
 
                 <button
                   type="submit"
-                  disabled={loading || !!success}
-                  className="w-full mt-2 flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:opacity-60 text-white font-bold py-2.5 px-4 rounded-xl shadow-lg shadow-emerald-600/25 transition-all text-xs"
+                  disabled={loading || isResetDone}
+                  className="w-full mt-2 flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:opacity-60 text-white font-bold py-2.5 px-4 rounded-xl shadow-lg shadow-emerald-600/25 transition-all text-xs cursor-pointer"
                 >
                   {loading ? (
                     <>
-                      <Loader2 className="w-4 h-4 animate-spin" /> Đang kiểm tra OTP...
+                      <Loader2 className="w-4 h-4 animate-spin" /> Đang xử lý đổi mật khẩu...
                     </>
-                  ) : success ? (
+                  ) : isResetDone ? (
                     <>
                       <CheckCircle2 className="w-4 h-4" /> Đã cập nhật mật khẩu!
                     </>
@@ -464,14 +468,14 @@ export default function ForgotPasswordModal({ isOpen, onClose, defaultIdentity =
             <div className="pt-1">
               <button
                 type="submit"
-                disabled={loading || !!success}
-                className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 disabled:opacity-60 text-white font-bold py-2.5 px-4 rounded-xl shadow-lg shadow-blue-500/25 transition-all text-xs"
+                disabled={loading || isResetDone}
+                className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 disabled:opacity-60 text-white font-bold py-2.5 px-4 rounded-xl shadow-lg shadow-blue-500/25 transition-all text-xs cursor-pointer"
               >
                 {loading ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin" /> Đang kiểm tra danh tính...
                   </>
-                ) : success ? (
+                ) : isResetDone ? (
                   <>
                     <CheckCircle2 className="w-4 h-4" /> Đã cập nhật mật khẩu!
                   </>

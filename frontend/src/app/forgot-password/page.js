@@ -18,6 +18,7 @@ export default function ForgotPasswordPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [isResetDone, setIsResetDone] = useState(false);
 
   // Gmail OTP states
   const [otpStep, setOtpStep] = useState(1);
@@ -90,6 +91,7 @@ export default function ForgotPasswordPage() {
         otp: cleanOtp,
         new_password: newPassword
       });
+      setIsResetDone(true);
       setSuccess(res.message || 'Đặt lại mật khẩu thành công! Đang chuyển về trang đăng nhập...');
       setTimeout(() => {
         router.push('/login');
@@ -134,6 +136,7 @@ export default function ForgotPasswordPage() {
       });
 
       if (res && res.success) {
+        setIsResetDone(true);
         setSuccess(res.message || 'Đặt lại mật khẩu thành công! Đang chuyển về trang đăng nhập...');
         setTimeout(() => {
           router.push('/login');
@@ -353,13 +356,18 @@ export default function ForgotPasswordPage() {
 
                 <button
                   type="submit"
-                  disabled={loading || !!success}
+                  disabled={loading || isResetDone}
                   className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold py-3 rounded-xl shadow-lg shadow-emerald-600/30 transition duration-200 disabled:opacity-60 cursor-pointer text-sm"
                 >
                   {loading ? (
                     <>
                       <Loader2 className="w-4 h-4 animate-spin" />
                       <span>Đang kiểm tra OTP...</span>
+                    </>
+                  ) : isResetDone ? (
+                    <>
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>Đã cập nhật mật khẩu!</span>
                     </>
                   ) : (
                     <>
@@ -458,13 +466,18 @@ export default function ForgotPasswordPage() {
 
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || isResetDone}
               className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-white font-bold py-3 rounded-xl shadow-lg shadow-orange-600/30 transition duration-200 disabled:opacity-60 cursor-pointer text-sm"
             >
               {loading ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
                   <span>Đang xử lý khôi phục...</span>
+                </>
+              ) : isResetDone ? (
+                <>
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>Đã cập nhật mật khẩu!</span>
                 </>
               ) : (
                 <>
