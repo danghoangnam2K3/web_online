@@ -1,6 +1,47 @@
 const { createClient } = require('@supabase/supabase-js');
 const bcrypt = require('bcryptjs');
+const nodemailer = require('nodemailer');
 require('dotenv').config();
+
+// Bộ nhớ lưu trữ mã OTP khôi phục mật khẩu (TTL: 10 phút)
+const resetOtpStore = new Map(); // key: email.toLowerCase() -> { otp, expiresAt, studentId, fullName, username }
+
+// Tự động dọn dẹp mã OTP đã hết hạn mỗi 5 phút
+const cleanupTimer = setInterval(() => {
+  const now = Date.now();
+  for (const [key, val] of resetOtpStore.entries()) {
+    if (val.expiresAt < now) {
+      resetOtpStore.delete(key);
+    }
+  }
+}, 5 * 60 * 1000);
+if (cleanupTimer.unref) cleanupTimer.unref();
+
+// Helper tạo Gmail Transporter
+function getEmailTransporter() {
+  const emailUser = process.env.EMAIL_USER || process.env.GMAIL_USER;
+  const emailPass = process.env.EMAIL_PASS || process.env.GMAIL_PASS || process.env.GMAIL_APP_PASSWORD;
+
+  if (!emailUser || !emailPass) {
+    return null;
+  }
+
+  return nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+      user: emailUser,
+      pass: emailPass.replace(/\s+/g, '') // loại bỏ khoảng trắng nếu copy từ Google
+    }
+  });
+}
+
+// Helper ẩn email hiển thị (da***@gmail.com)
+function maskEmail(email) {
+  if (!email || !email.includes('@')) return email || '';
+  const [local, domain] = email.split('@');
+  if (local.length <= 2) return `${local[0]}***@${domain}`;
+  return `${local.slice(0, 2)}***${local.slice(-1)}@${domain}`;
+}
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
@@ -392,6 +433,254 @@ async function forgotPassword(req, res) {
   }
 }
 
+// ─── Gửi mã xác nhận OTP qua Gmail ──────────────────────────────────────────
+async function sendResetOtp(req, res) {
+  if (!checkSupabaseEnv(res)) return;
+
+  const { identity } = req.body;
+  const cleanIdentity = String(identity || '').trim();
+
+  if (!cleanIdentity) {
+    return res.status(400).json({
+      success: false,
+      message: 'Vui lòng nhập Tên đăng nhập hoặc Email!'
+    });
+  }
+
+  const supabase = createClient(supabaseUrl, supabaseKey);
+
+  try {
+    // 1. Tìm tài khoản trong bảng students
+    let student = null;
+    const { data: byUsername } = await supabase
+      .from('students')
+      .select('id, username, email, full_name')
+      .ilike('username', cleanIdentity)
+      .limit(1);
+
+    if (byUsername && byUsername.length > 0) {
+      student = byUsername[0];
+    } else {
+      const { data: byEmail } = await supabase
+        .from('students')
+        .select('id, username, email, full_name')
+        .ilike('email', cleanIdentity)
+        .limit(1);
+      if (byEmail && byEmail.length > 0) student = byEmail[0];
+    }
+
+    if (!student) {
+      return res.status(404).json({
+        success: false,
+        message: 'Không tìm thấy tài khoản với tên đăng nhập hoặc email này!'
+      });
+    }
+
+    const studentEmail = String(student.email || '').trim();
+    if (!studentEmail || !studentEmail.includes('@')) {
+      return res.status(400).json({
+        success: false,
+        message: 'Tài khoản này chưa được cập nhật địa chỉ email. Vui lòng sử dụng phương thức "Khôi phục qua số CCCD" hoặc liên hệ quản trị viên!'
+      });
+    }
+
+    // 2. Sinh mã OTP ngẫu nhiên 6 chữ số
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = Date.now() + 10 * 60 * 1000; // Hiệu lực 10 phút
+
+    const emailKey = studentEmail.toLowerCase();
+    resetOtpStore.set(emailKey, {
+      otp,
+      expiresAt,
+      studentId: student.id,
+      fullName: student.full_name,
+      username: student.username,
+      email: studentEmail
+    });
+
+    const masked = maskEmail(studentEmail);
+    const transporter = getEmailTransporter();
+
+    // Nếu chưa cấu hình EMAIL_USER / EMAIL_PASS trong biến môi trường
+    if (!transporter) {
+      console.warn(`[GMAIL OTP] Chưa cấu hình EMAIL_USER / EMAIL_PASS trong file .env! Mã OTP cho ${studentEmail} là: ${otp}`);
+      return res.json({
+        success: true,
+        isDevFallback: true,
+        message: `Mã OTP đã được tạo (Hệ thống chưa cấu hình EMAIL_USER/EMAIL_PASS trong .env).`,
+        dev_otp: otp, // Trợ giúp kiểm thử nhanh khi chưa cài đặt App Password của Google
+        email_masked: masked,
+        identity: student.username || studentEmail
+      });
+    }
+
+    // 3. Gửi email qua Gmail SMTP
+    const mailOptions = {
+      from: `"DriveEdu Support" <${process.env.EMAIL_USER || process.env.GMAIL_USER}>`,
+      to: studentEmail,
+      subject: `[DriveEdu] Mã xác nhận đặt lại mật khẩu: ${otp}`,
+      html: `
+        <div style="font-family: Arial, 'Helvetica Neue', Helvetica, sans-serif; max-width: 560px; margin: 0 auto; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 16px; overflow: hidden;">
+          <div style="background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 100%); padding: 32px 24px; text-align: center;">
+            <h1 style="color: #ffffff; margin: 0; font-size: 26px; font-weight: 800; letter-spacing: -0.5px;">DRIVE<span style="color: #60a5fa;">EDU</span></h1>
+            <p style="color: #bfdbfe; margin: 6px 0 0; font-size: 14px;">Hệ Thống Đào Tạo & Sát Hạch Lái Xe Trực Tuyến</p>
+          </div>
+          <div style="padding: 32px 24px;">
+            <p style="font-size: 15px; color: #334155; margin-top: 0;">Xin chào <strong>${student.full_name || student.username}</strong>,</p>
+            <p style="font-size: 14px; color: #475569; line-height: 1.6;">Chúng tôi nhận được yêu cầu đặt lại mật khẩu cho tài khoản <strong>${student.username}</strong> trên hệ thống DriveEdu.</p>
+            <p style="font-size: 14px; color: #475569;">Dưới đây là mã xác thực OTP của bạn:</p>
+            
+            <div style="margin: 24px 0; text-align: center;">
+              <div style="display: inline-block; background: #f8fafc; border: 2px dashed #3b82f6; border-radius: 12px; padding: 16px 36px;">
+                <span style="font-size: 36px; font-weight: 800; color: #1d4ed8; letter-spacing: 8px; font-family: monospace;">${otp}</span>
+              </div>
+            </div>
+
+            <p style="font-size: 13px; color: #64748b; line-height: 1.5; margin-bottom: 24px;">
+              ⏱️ Mã xác thực này có hiệu lực trong <strong>10 phút</strong>. Vì lý do an toàn, vui lòng không chia sẻ mã này cho bất kỳ ai.
+            </p>
+            <p style="font-size: 13px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 16px; margin-bottom: 0;">
+              Nếu bạn không thực hiện yêu cầu này, vui lòng bỏ qua email hoặc liên hệ với bộ phận hỗ trợ của trường đào tạo lái xe.
+            </p>
+          </div>
+        </div>
+      `
+    };
+
+    await transporter.sendMail(mailOptions);
+    console.log(`[GMAIL OTP] Đã gửi mã OTP thành công tới ${studentEmail}`);
+
+    return res.json({
+      success: true,
+      message: `Mã xác nhận OTP đã được gửi đến email ${masked}. Vui lòng kiểm tra hộp thư đến (hoặc mục Spam)!`,
+      email_masked: masked,
+      identity: student.username || studentEmail
+    });
+  } catch (err) {
+    console.error('Lỗi gửi OTP qua Gmail:', err.message);
+    return res.status(500).json({
+      success: false,
+      message: 'Không thể gửi email OTP: ' + (err.message || 'Lỗi kết nối máy chủ gửi mail')
+    });
+  }
+}
+
+// ─── Xác thực mã OTP và đặt lại mật khẩu mới ────────────────────────────────
+async function verifyResetOtp(req, res) {
+  if (!checkSupabaseEnv(res)) return;
+
+  const { identity, otp, new_password } = req.body;
+  const cleanIdentity = String(identity || '').trim();
+  const cleanOtp = String(otp || '').trim();
+  const cleanPassword = String(new_password || '').trim();
+
+  if (!cleanIdentity || !cleanOtp || !cleanPassword) {
+    return res.status(400).json({
+      success: false,
+      message: 'Vui lòng điền đầy đủ thông tin: Tài khoản/Email, Mã OTP và Mật khẩu mới!'
+    });
+  }
+
+  if (cleanOtp.length !== 6) {
+    return res.status(400).json({
+      success: false,
+      message: 'Mã xác nhận OTP phải gồm chính xác 6 chữ số!'
+    });
+  }
+
+  if (cleanPassword.length < 6) {
+    return res.status(400).json({
+      success: false,
+      message: 'Mật khẩu mới phải có ít nhất 6 ký tự!'
+    });
+  }
+
+  const supabase = createClient(supabaseUrl, supabaseKey);
+
+  try {
+    // 1. Tìm thông tin học viên
+    let student = null;
+    const { data: byUsername } = await supabase
+      .from('students')
+      .select('id, username, email, full_name')
+      .ilike('username', cleanIdentity)
+      .limit(1);
+
+    if (byUsername && byUsername.length > 0) {
+      student = byUsername[0];
+    } else {
+      const { data: byEmail } = await supabase
+        .from('students')
+        .select('id, username, email, full_name')
+        .ilike('email', cleanIdentity)
+        .limit(1);
+      if (byEmail && byEmail.length > 0) student = byEmail[0];
+    }
+
+    if (!student) {
+      return res.status(404).json({
+        success: false,
+        message: 'Không tìm thấy tài khoản!'
+      });
+    }
+
+    const emailKey = String(student.email || '').toLowerCase().trim();
+    const cachedData = resetOtpStore.get(emailKey);
+
+    if (!cachedData) {
+      return res.status(400).json({
+        success: false,
+        message: 'Mã OTP không tồn tại hoặc đã hết hạn. Vui lòng bấm "Gửi lại mã OTP"!'
+      });
+    }
+
+    if (Date.now() > cachedData.expiresAt) {
+      resetOtpStore.delete(emailKey);
+      return res.status(400).json({
+        success: false,
+        message: 'Mã OTP đã quá hạn 10 phút. Vui lòng yêu cầu mã OTP mới!'
+      });
+    }
+
+    if (cachedData.otp !== cleanOtp) {
+      return res.status(400).json({
+        success: false,
+        message: 'Mã OTP không chính xác. Vui lòng kiểm tra lại trong hòm thư!'
+      });
+    }
+
+    // 2. Băm mật khẩu mới bằng Bcrypt
+    const hashedPassword = await bcrypt.hash(cleanPassword, 10);
+
+    // 3. Cập nhật vào Supabase
+    const { error: updateErr } = await supabase
+      .from('students')
+      .update({
+        password: hashedPassword,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', student.id);
+
+    if (updateErr) {
+      throw new Error(updateErr.message);
+    }
+
+    // 4. Hủy mã OTP sau khi sử dụng thành công
+    resetOtpStore.delete(emailKey);
+
+    return res.json({
+      success: true,
+      message: `Đổi mật khẩu thành công cho học viên "${student.full_name}"! Bạn có thể đăng nhập bằng mật khẩu mới ngay.`
+    });
+  } catch (err) {
+    console.error('Lỗi xác thực OTP đổi mật khẩu:', err.message);
+    return res.status(500).json({
+      success: false,
+      message: err.message || 'Lỗi hệ thống khi xác thực mã OTP'
+    });
+  }
+}
+
 // ─── Cập nhật thông tin tài khoản trên Supabase ──────────────────────────────
 async function updateProfile(req, res) {
   if (!checkSupabaseEnv(res)) return;
@@ -635,6 +924,8 @@ module.exports = {
   register,
   changePassword,
   forgotPassword,
+  sendResetOtp,
+  verifyResetOtp,
   updateProfile,
   uploadAvatar,
   getMyStudentProfile,

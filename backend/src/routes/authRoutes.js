@@ -5,19 +5,23 @@ const {
   register,
   changePassword,
   forgotPassword,
+  sendResetOtp,
+  verifyResetOtp,
   updateProfile,
   uploadAvatar,
   getMyStudentProfile,
   migrateAllLegacyPasswords
 } = require('../controllers/authController');
 
-router.post('/login',           login);
-router.post('/register',        register);
-router.post('/change-password', changePassword);
-router.post('/forgot-password', forgotPassword);
-router.put('/profile',          updateProfile);
-router.post('/upload-avatar',   uploadAvatar);
-router.get('/me',               getMyStudentProfile);
+router.post('/login',            login);
+router.post('/register',         register);
+router.post('/change-password',  changePassword);
+router.post('/forgot-password',  forgotPassword);
+router.post('/send-reset-otp',   sendResetOtp);
+router.post('/verify-reset-otp', verifyResetOtp);
+router.put('/profile',           updateProfile);
+router.post('/upload-avatar',    uploadAvatar);
+router.get('/me',                getMyStudentProfile);
 
 // Endpoint quét và mã hóa toàn bộ mật khẩu cũ sang Bcrypt
 router.get('/migrate-passwords',  migrateAllLegacyPasswords);

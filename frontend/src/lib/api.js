@@ -569,4 +569,31 @@ export async function forgotPasswordApi({ identity, cccd, new_password }) {
   return json;
 }
 
+export async function sendResetOtpApi({ identity }) {
+  const res = await fetch(`${BASE_URL}/auth/send-reset-otp`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ identity })
+  });
+  const json = await res.json();
+  if (!res.ok || !json.success) {
+    throw new Error(json.message || 'Không thể gửi mã OTP qua Gmail');
+  }
+  return json;
+}
+
+export async function verifyResetOtpApi({ identity, otp, new_password }) {
+  const res = await fetch(`${BASE_URL}/auth/verify-reset-otp`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ identity, otp, new_password })
+  });
+  const json = await res.json();
+  if (!res.ok || !json.success) {
+    throw new Error(json.message || 'Xác thực mã OTP thất bại');
+  }
+  return json;
+}
+
+
 
