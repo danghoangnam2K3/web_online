@@ -467,4 +467,80 @@ async function getMyStudentProfile(req, res) {
   });
 }
 
-module.exports = { login, register, changePassword, updateProfile, uploadAvatar, getMyStudentProfile };
+// ─── Tự động quét và mã hóa toàn bộ mật khẩu cũ trong Supabase sang Bcrypt ─────
+async function migrateAllLegacyPasswords(req, res) {
+  if (!supabaseUrl || !supabaseKey) {
+    const msg = 'Chưa cấu hình SUPABASE_URL hoặc SUPABASE_KEY trong môi trường!';
+    if (res) return res.status(500).json({ success: false, message: msg });
+    return console.warn('[MIGRATION]', msg);
+  }
+
+  const supabase = createClient(supabaseUrl, supabaseKey);
+
+  try {
+    const { data: students, error } = await supabase
+      .from('students')
+      .select('id, username, full_name, password');
+
+    if (error) throw new Error(error.message);
+
+    // Lọc ra các học viên có mật khẩu chưa được mã hóa Bcrypt
+    const legacyList = (students || []).filter(
+      s => s.password && !/^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$/.test(s.password)
+    );
+
+    if (legacyList.length === 0) {
+      const msg = 'Tất cả mật khẩu học viên trong Supabase đã được mã hóa Bcrypt an toàn từ trước!';
+      if (res) return res.json({ success: true, message: msg, count: 0 });
+      return console.log(`[MIGRATION] ${msg}`);
+    }
+
+    console.log(`[MIGRATION] Bắt đầu mã hóa Bcrypt cho ${legacyList.length} tài khoản trong Supabase...`);
+    let updatedCount = 0;
+    for (const st of legacyList) {
+      const hash = await bcrypt.hash(st.password, 10);
+      const { error: updateErr } = await supabase
+        .from('students')
+        .update({ password: hash })
+        .eq('id', st.id);
+
+      if (!updateErr) {
+        updatedCount++;
+      } else {
+        console.warn(`Lỗi cập nhật mật khẩu học viên ${st.id}:`, updateErr.message);
+      }
+    }
+
+    const resultMsg = `Đã mã hóa Bcrypt thành công cho ${updatedCount}/${legacyList.length} tài khoản học viên trong Supabase!`;
+    console.log(`[MIGRATION] ${resultMsg}`);
+    if (res) {
+      return res.json({
+        success: true,
+        message: resultMsg,
+        count: updatedCount
+      });
+    }
+  } catch (err) {
+    console.error('Lỗi khi migrate mật khẩu:', err.message);
+    if (res) return res.status(500).json({ success: false, message: err.message });
+  }
+}
+
+// Tự động kích hoạt quét và nâng cấp mật khẩu khi khởi động server nếu có cấu hình Supabase
+if (supabaseUrl && supabaseKey) {
+  setTimeout(() => {
+    migrateAllLegacyPasswords(null, null).catch(err => {
+      console.warn('Auto migrate legacy passwords warning:', err.message);
+    });
+  }, 3000);
+}
+
+module.exports = {
+  login,
+  register,
+  changePassword,
+  updateProfile,
+  uploadAvatar,
+  getMyStudentProfile,
+  migrateAllLegacyPasswords
+};
