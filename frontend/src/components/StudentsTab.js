@@ -3,9 +3,10 @@
 import React, { useState, useEffect } from 'react';
 import { fetchStudents, createStudentApi, deleteStudentApi } from '../lib/api';
 import { useAuth } from '../lib/AuthContext';
-import { Users, UserPlus, Search, Shield, Eye, CreditCard, Calendar, Filter, CheckCircle2, Lock, Edit3, Trash2 } from 'lucide-react';
+import { Users, UserPlus, Search, Shield, Eye, CreditCard, Calendar, Filter, CheckCircle2, Lock, Edit3, Trash2, FileText } from 'lucide-react';
 import CreateStudentModal from './CreateStudentModal';
 import StudentDetailModal from './StudentDetailModal';
+import StudentReportModal from './StudentReportModal';
 
 export default function StudentsTab() {
   const { user } = useAuth();
@@ -22,6 +23,8 @@ export default function StudentsTab() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+  const [reportStudent, setReportStudent] = useState(null);
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
 
   useEffect(() => {
     loadStudents();
@@ -248,12 +251,22 @@ export default function StudentsTab() {
                     <td className="py-3.5 px-4 text-center">
                       <div className="flex items-center justify-center gap-1.5">
                         <button
+                          onClick={() => {
+                            setReportStudent(st);
+                            setIsReportModalOpen(true);
+                          }}
+                          className="px-2.5 py-1.5 bg-emerald-50 border border-emerald-200 text-emerald-700 hover:bg-emerald-600 hover:text-white rounded-lg font-bold text-xs transition-colors inline-flex items-center"
+                          title="Xem & in báo cáo quá trình đào tạo"
+                        >
+                          <FileText className="w-3.5 h-3.5 mr-1" /> Báo Cáo
+                        </button>
+                        <button
                           onClick={() => handleViewDetail(st)}
                           className="px-2.5 py-1.5 bg-blue-50 border border-blue-200 text-blue-700 hover:bg-blue-600 hover:text-white rounded-lg font-bold text-xs transition-colors inline-flex items-center"
                           title={isAdmin ? 'Chỉnh sửa thông tin học viên' : 'Xem thông tin học viên'}
                         >
                           {isAdmin ? <Edit3 className="w-3.5 h-3.5 mr-1" /> : <Eye className="w-3.5 h-3.5 mr-1" />}
-                          {isAdmin ? 'Sửa' : 'Xem Chi Tiết'}
+                          {isAdmin ? 'Sửa' : 'Xem'}
                         </button>
                         {isAdmin && (
                           <button
@@ -293,6 +306,16 @@ export default function StudentsTab() {
         student={selectedStudent}
         onUpdateStudent={loadStudents}
         onDeleteStudent={loadStudents}
+      />
+
+      {/* Modal Xem & In Báo Cáo Quá Trình Đào Tạo Học Viên Quy Chuẩn */}
+      <StudentReportModal
+        isOpen={isReportModalOpen}
+        onClose={() => {
+          setIsReportModalOpen(false);
+          setReportStudent(null);
+        }}
+        student={reportStudent}
       />
     </div>
   );

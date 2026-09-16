@@ -1,9 +1,10 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Edit2, CheckCircle, Shield, User, Award, Calendar, CreditCard, Mail, Phone, Camera, Upload, Lock, KeyRound, Eye, EyeOff } from 'lucide-react';
+import { X, Edit2, CheckCircle, Shield, User, Award, Calendar, CreditCard, Mail, Phone, Camera, Upload, Lock, KeyRound, Eye, EyeOff, FileText } from 'lucide-react';
 import { updateStudentApi } from '../lib/api';
 import { useAuth } from '../lib/AuthContext';
+import StudentReportModal from './StudentReportModal';
 
 const BASE_URL = 'https://web-online-wbn5.onrender.com/api';
 
@@ -14,6 +15,7 @@ export default function StudentDetailModal({ isOpen, onClose, student, onUpdateS
   const [isEditing, setIsEditing] = useState(false);
   const [formData, setFormData] = useState({});
   const [loading, setLoading] = useState(false);
+  const [showReport, setShowReport] = useState(false);
 
   // Mật khẩu State khi sửa học viên
   const [changePasswordChecked, setChangePasswordChecked] = useState(false);
@@ -257,16 +259,20 @@ export default function StudentDetailModal({ isOpen, onClose, student, onUpdateS
                 </div>
               </div>
 
-              <div className="pt-4 flex justify-between items-center">
+              <div className="pt-4 flex flex-wrap justify-between items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowReport(true)}
+                  className="px-3.5 py-2 bg-emerald-50 border border-emerald-300 hover:bg-emerald-100 text-emerald-800 text-xs font-bold rounded-lg flex items-center shadow-sm transition-all"
+                >
+                  <FileText className="w-3.5 h-3.5 mr-1.5 text-emerald-600" /> In Báo Cáo Quá Trình Đào Tạo
+                </button>
+
                 {!isAdmin ? (
                   <span className="text-[11px] font-semibold text-slate-500 bg-slate-100 px-3 py-1.5 rounded-lg flex items-center gap-1.5 border border-slate-200">
-                    <Eye className="w-3.5 h-3.5 text-blue-600" /> Tài khoản Học viên (chỉ xem, không được chỉnh sửa)
+                    <Eye className="w-3.5 h-3.5 text-blue-600" /> Tài khoản Học viên (chỉ xem)
                   </span>
                 ) : (
-                  <div />
-                )}
-
-                {isAdmin && (
                   <button
                     type="button"
                     onClick={() => setIsEditing(true)}
@@ -563,6 +569,13 @@ export default function StudentDetailModal({ isOpen, onClose, student, onUpdateS
           </div>
         </div>
       )}
+
+      {/* Modal Báo Cáo Quá Trình Đào Tạo */}
+      <StudentReportModal
+        isOpen={showReport}
+        onClose={() => setShowReport(false)}
+        student={student}
+      />
     </>
   );
 }
