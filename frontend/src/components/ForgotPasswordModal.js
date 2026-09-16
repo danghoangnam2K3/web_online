@@ -66,13 +66,9 @@ export default function ForgotPasswordModal({ isOpen, onClose, defaultIdentity =
       const res = await sendResetOtpApi({ identity: identity.trim() });
       setMaskedEmail(res.email_masked || identity);
       setOtpStep(2);
+      setOtpCode('');
       setCountdown(60); // 60s cooldown before resend
-      if (res.isDevFallback && res.dev_otp) {
-        setOtpCode(res.dev_otp);
-        setSuccess(`Mã xác nhận OTP của bạn là: ${res.dev_otp} (Đã tự động điền sẵn)`);
-      } else {
-        setSuccess(res.message || 'Mã OTP đã được gửi đến email của bạn!');
-      }
+      setSuccess(res.message || 'Mã OTP đã được gửi đến email của bạn. Vui lòng kiểm tra hòm thư trên thiết bị và nhập mã vào!');
     } catch (err) {
       setError(err.message || 'Không thể gửi mã OTP. Vui lòng kiểm tra lại tài khoản hoặc đổi sang xác minh CCCD!');
     } finally {
