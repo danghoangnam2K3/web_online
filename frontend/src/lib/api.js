@@ -555,3 +555,18 @@ export async function fetchQuizAttemptsApi(studentId) {
   }
 }
 
+// ─── Quên & Khôi phục mật khẩu ────────────────────────────────────────────────
+export async function forgotPasswordApi({ identity, cccd, new_password }) {
+  const res = await fetch(`${BASE_URL}/auth/forgot-password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ identity, cccd, new_password })
+  });
+  const json = await res.json();
+  if (!res.ok || !json.success) {
+    throw new Error(json.message || 'Khôi phục mật khẩu thất bại');
+  }
+  return json;
+}
+
+

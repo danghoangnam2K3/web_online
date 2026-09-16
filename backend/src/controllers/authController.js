@@ -297,6 +297,101 @@ async function changePassword(req, res) {
   return res.json({ success: true, message: 'Đổi mật khẩu thành công!' });
 }
 
+// ─── Quên mật khẩu & Khôi phục qua xác minh CCCD ──────────────────────────────
+async function forgotPassword(req, res) {
+  if (!checkSupabaseEnv(res)) return;
+
+  const { identity, cccd, new_password } = req.body;
+  const cleanIdentity = String(identity || '').trim();
+  const cleanCccd = String(cccd || '').trim();
+  const cleanPassword = String(new_password || '').trim();
+
+  if (!cleanIdentity || !cleanCccd || !cleanPassword) {
+    return res.status(400).json({
+      success: false,
+      message: 'Vui lòng nhập đầy đủ: Tên đăng nhập/Email, Số CCCD và Mật khẩu mới!'
+    });
+  }
+
+  if (cleanPassword.length < 6) {
+    return res.status(400).json({
+      success: false,
+      message: 'Mật khẩu mới phải có ít nhất 6 ký tự!'
+    });
+  }
+
+  const supabase = createClient(supabaseUrl, supabaseKey);
+
+  try {
+    // 1. Tìm tài khoản theo username hoặc email
+    let student = null;
+    const { data: byUsername } = await supabase
+      .from('students')
+      .select('*')
+      .ilike('username', cleanIdentity)
+      .limit(1);
+
+    if (byUsername && byUsername.length > 0) {
+      student = byUsername[0];
+    } else {
+      const { data: byEmail } = await supabase
+        .from('students')
+        .select('*')
+        .ilike('email', cleanIdentity)
+        .limit(1);
+      if (byEmail && byEmail.length > 0) student = byEmail[0];
+    }
+
+    if (!student) {
+      return res.status(404).json({
+        success: false,
+        message: 'Không tìm thấy tài khoản học viên với tên đăng nhập hoặc email này!'
+      });
+    }
+
+    // 2. Xác minh số CCCD
+    const dbCccd = String(student.cccd || '').replace(/\D/g, '');
+    const userCccd = cleanCccd.replace(/\D/g, '');
+
+    const isMatchCccd = (dbCccd && userCccd && dbCccd === userCccd) || 
+      (student.cccd && student.cccd.trim().toLowerCase() === cleanCccd.toLowerCase());
+
+    if (!isMatchCccd) {
+      return res.status(400).json({
+        success: false,
+        message: 'Số CCCD không trùng khớp với hồ sơ học viên đã đăng ký trong hệ thống!'
+      });
+    }
+
+    // 3. Mã hóa mật khẩu mới bằng Bcrypt
+    const hashedPassword = await bcrypt.hash(cleanPassword, 10);
+
+    // 4. Cập nhật vào Supabase
+    const { error: updateErr } = await supabase
+      .from('students')
+      .update({
+        password: hashedPassword,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', student.id);
+
+    if (updateErr) {
+      throw new Error(updateErr.message);
+    }
+
+    return res.json({
+      success: true,
+      message: `Khôi phục mật khẩu thành công cho học viên "${student.full_name}"! Bạn có thể đăng nhập ngay.`
+    });
+  } catch (err) {
+    console.error('Lỗi khôi phục mật khẩu:', err.message);
+    return res.status(500).json({
+      success: false,
+      message: err.message || 'Lỗi hệ thống khi khôi phục mật khẩu'
+    });
+  }
+}
+
 // ─── Cập nhật thông tin tài khoản trên Supabase ──────────────────────────────
 async function updateProfile(req, res) {
   if (!checkSupabaseEnv(res)) return;
@@ -539,6 +634,7 @@ module.exports = {
   login,
   register,
   changePassword,
+  forgotPassword,
   updateProfile,
   uploadAvatar,
   getMyStudentProfile,

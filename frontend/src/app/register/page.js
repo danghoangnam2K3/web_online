@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../lib/AuthContext';
 import { ShieldCheck, Eye, EyeOff, UserPlus, AlertCircle, CheckCircle2, User, Mail, Lock } from 'lucide-react';
+import ForgotPasswordModal from '../../components/ForgotPasswordModal';
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -14,6 +15,7 @@ export default function RegisterPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [isForgotOpen, setIsForgotOpen] = useState(false);
 
   const update = (field) => (e) => setForm((prev) => ({ ...prev, [field]: e.target.value }));
 
@@ -177,18 +179,36 @@ export default function RegisterPage() {
             </button>
           </form>
 
-          {/* Login link */}
-          <p className="text-center text-sm text-white/50">
-            Đã có tài khoản?{' '}
+          {/* Login link & Forgot password */}
+          <div className="flex flex-col sm:flex-row items-center justify-between text-xs sm:text-sm text-white/50 pt-2 border-t border-white/10 gap-2">
+            <div>
+              Đã có tài khoản?{' '}
+              <button
+                id="link-to-login"
+                type="button"
+                onClick={() => router.push('/login')}
+                className="text-blue-400 hover:text-blue-300 font-semibold transition-colors"
+              >
+                Đăng nhập
+              </button>
+            </div>
             <button
-              id="link-to-login"
-              onClick={() => router.push('/login')}
-              className="text-blue-400 hover:text-blue-300 font-semibold transition-colors"
+              id="link-forgot-password-reg"
+              type="button"
+              onClick={() => setIsForgotOpen(true)}
+              className="text-amber-400 hover:text-amber-300 font-medium transition-colors hover:underline"
             >
-              Đăng nhập
+              Quên mật khẩu?
             </button>
-          </p>
+          </div>
         </div>
+
+        {/* Forgot Password Modal */}
+        <ForgotPasswordModal
+          isOpen={isForgotOpen}
+          onClose={() => setIsForgotOpen(false)}
+          defaultIdentity={form.username || form.email}
+        />
       </div>
     </div>
   );

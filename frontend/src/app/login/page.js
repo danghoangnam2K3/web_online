@@ -3,7 +3,8 @@
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../lib/AuthContext';
-import { ShieldCheck, Eye, EyeOff, LogIn, UserPlus, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { ShieldCheck, Eye, EyeOff, LogIn, UserPlus, AlertCircle, CheckCircle2, KeyRound } from 'lucide-react';
+import ForgotPasswordModal from '../../components/ForgotPasswordModal';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -13,6 +14,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [showPw, setShowPw] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [isForgotOpen, setIsForgotOpen] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
@@ -89,9 +91,18 @@ export default function LoginPage() {
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-blue-200/80 uppercase tracking-widest" htmlFor="password">
-                Mật khẩu
-              </label>
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-semibold text-blue-200/80 uppercase tracking-widest" htmlFor="password">
+                  Mật khẩu
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setIsForgotOpen(true)}
+                  className="text-xs text-blue-400 hover:text-blue-300 font-medium transition-colors"
+                >
+                  Quên mật khẩu?
+                </button>
+              </div>
               <div className="relative">
                 <input
                   id="password"
@@ -144,6 +155,13 @@ export default function LoginPage() {
           </p>
         </div>
       </div>
+
+      {/* Modal Khôi Phục Mật Khẩu */}
+      <ForgotPasswordModal
+        isOpen={isForgotOpen}
+        onClose={() => setIsForgotOpen(false)}
+        defaultIdentity={username}
+      />
     </div>
   );
 }
