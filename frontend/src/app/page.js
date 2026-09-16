@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../lib/AuthContext';
+import { warmUpServer, prefetchAllTabsData } from '../lib/api';
 import Header from '../components/Header';
 import OverviewTab from '../components/OverviewTab';
 import CoursesTab from '../components/CoursesTab';
@@ -29,6 +30,12 @@ export default function DashboardPage() {
   // Khởi tạo tab từ URL hash (giữ nguyên tab sau F5)
   const [activeTab, setActiveTab] = useState('overview');
   const [selectedCourseIdFromOverview, setSelectedCourseIdFromOverview] = useState(null);
+
+  // Kích hoạt đánh thức server và tải trước dữ liệu ngầm ngay khi vào trang
+  useEffect(() => {
+    warmUpServer();
+    prefetchAllTabsData();
+  }, []);
 
   useEffect(() => {
     if (user?.role === 'student') {
@@ -103,17 +110,21 @@ export default function DashboardPage() {
       />
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {activeTab === 'overview' && (
+        <div className={activeTab === 'overview' ? 'block' : 'hidden'}>
           <OverviewTab
             setActiveTab={handleSetActiveTab}
             onSelectCourse={handleSelectCourseFromOverview}
           />
-        )}
-        {activeTab === 'courses' && (
+        </div>
+        <div className={activeTab === 'courses' ? 'block' : 'hidden'}>
           <CoursesTab initialSelectedCourseId={selectedCourseIdFromOverview} />
-        )}
-        {activeTab === 'students' && <StudentsTab />}
-        {activeTab === 'reports' && <ReportsTab />}
+        </div>
+        <div className={activeTab === 'students' ? 'block' : 'hidden'}>
+          <StudentsTab />
+        </div>
+        <div className={activeTab === 'reports' ? 'block' : 'hidden'}>
+          <ReportsTab />
+        </div>
       </main>
 
       <footer className="bg-white border-t border-slate-200 py-6 text-center text-xs text-slate-500">

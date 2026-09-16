@@ -36,14 +36,14 @@ export default function ReportsTab() {
 
   useEffect(() => {
     async function loadData() {
-      setLoading(true);
+      if (courses.length === 0 || students.length === 0) setLoading(true);
       try {
         const [cList, sList] = await Promise.all([fetchCourses(), fetchStudents()]);
         setCourses(cList || []);
         setStudents(sList || []);
 
-        if (sList && sList.length > 0) setSelectedStudentId(sList[0].id);
-        if (cList && cList.length > 0) setSelectedCourseId(cList[0].id);
+        if (sList && sList.length > 0 && !selectedStudentId) setSelectedStudentId(sList[0].id);
+        if (cList && cList.length > 0 && !selectedCourseId) setSelectedCourseId(cList[0].id);
       } catch (err) {
         console.error('Lỗi tải dữ liệu báo cáo:', err);
       } finally {

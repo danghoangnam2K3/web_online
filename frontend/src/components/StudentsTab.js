@@ -31,14 +31,14 @@ export default function StudentsTab() {
   }, [search, roleFilter, onlyUnassigned]);
 
   async function loadStudents() {
-    setLoading(true);
+    if (students.length === 0) setLoading(true);
     setError('');
     try {
       const data = await fetchStudents(search, roleFilter, onlyUnassigned);
       setStudents(data || []);
     } catch (err) {
       setError(err.message);
-      setStudents([]);
+      if (students.length === 0) setStudents([]);
     } finally {
       setLoading(false);
     }

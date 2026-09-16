@@ -141,13 +141,13 @@ export default function StudentPortal({ onSwitchToAdmin }) {
   // 1. Tải danh sách khóa học và hồ sơ học viên từ CSDL Supabase
   useEffect(() => {
     async function loadData() {
-      setLoading(true);
+      if (allCourses.length === 0) setLoading(true);
       try {
         const coursesData = await fetchCourses();
         setAllCourses(Array.isArray(coursesData) ? coursesData : []);
       } catch (err) {
         console.error('Lỗi tải danh sách khóa học từ máy chủ CSDL:', err.message);
-        setAllCourses([]);
+        if (allCourses.length === 0) setAllCourses([]);
       }
 
       // Lấy thông tin học viên chi tiết trực tiếp từ Supabase

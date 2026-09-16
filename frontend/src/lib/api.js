@@ -63,32 +63,186 @@ function normalizeCourseFromDatabase(course) {
   }
 }
 
-// Helper gọi API chung
+// ─── BỘ NHỚ ĐỆM SIÊU TỐC (MEMORY + SESSION STORAGE + SWR) ──────────────────────
+const memoryCache = new Map();
+const inflightRequests = new Map();
+const CACHE_TTL_MS = 60 * 1000; // 60 giây
+
+// Đọc dữ liệu từ Cache
+function getCachedData(key) {
+  // 1. Kiểm tra RAM cache trước tiên (tốc độ 0.01ms)
+  if (memoryCache.has(key)) {
+    const item = memoryCache.get(key);
+    const age = Date.now() - item.timestamp;
+    return { data: item.data, isStale: age >= CACHE_TTL_MS };
+  }
+
+  // 2. Kiểm tra sessionStorage nếu chạy trên trình duyệt (giúp F5 tức thì)
+  if (typeof window !== 'undefined') {
+    try {
+      const raw = sessionStorage.getItem(`driveedu_cache_${key}`);
+      if (raw) {
+        const item = JSON.parse(raw);
+        if (Date.now() - item.timestamp < CACHE_TTL_MS * 5) {
+          memoryCache.set(key, item);
+          return { data: item.data, isStale: true };
+        }
+      }
+    } catch (e) {}
+  }
+
+  return null;
+}
+
+// Lưu dữ liệu vào Cache
+function setCachedData(key, data) {
+  const item = { data, timestamp: Date.now() };
+  memoryCache.set(key, item);
+  if (typeof window !== 'undefined') {
+    try {
+      sessionStorage.setItem(`driveedu_cache_${key}`, JSON.stringify(item));
+    } catch (e) {}
+  }
+}
+
+// Xóa cache khi có thao tác thêm/sửa/xóa (Mutation)
+export function clearApiCache(prefix = '') {
+  if (!prefix) {
+    memoryCache.clear();
+    if (typeof window !== 'undefined') {
+      try {
+        Object.keys(sessionStorage).forEach(k => {
+          if (k.startsWith('driveedu_cache_')) sessionStorage.removeItem(k);
+        });
+      } catch (e) {}
+    }
+    return;
+  }
+
+  for (const key of memoryCache.keys()) {
+    if (key.includes(prefix)) {
+      memoryCache.delete(key);
+    }
+  }
+  if (typeof window !== 'undefined') {
+    try {
+      Object.keys(sessionStorage).forEach(k => {
+        if (k.startsWith('driveedu_cache_') && k.includes(prefix)) {
+          sessionStorage.removeItem(k);
+        }
+      });
+    } catch (e) {}
+  }
+}
+
+// Khởi động trước máy chủ Render và tải sẵn dữ liệu trong nền
+export function warmUpServer() {
+  if (typeof window === 'undefined') return;
+  try {
+    fetch('https://web-online-wbn5.onrender.com/', { mode: 'no-cors' }).catch(() => {});
+  } catch (e) {}
+}
+
+export function prefetchAllTabsData() {
+  if (typeof window === 'undefined') return;
+  setTimeout(() => {
+    fetchOverviewStats().catch(() => {});
+    fetchCourses().catch(() => {});
+    fetchStudents().catch(() => {});
+  }, 100);
+}
+
+// Helper gọi API chung với bộ nhớ đệm và chống trùng lặp request
 async function apiFetch(path, options = {}) {
+  const method = (options.method || 'GET').toUpperCase();
+  const isGet = method === 'GET';
+  const cacheKey = `${method}:${path}`;
+
+  // Khi có mutation (POST, PUT, DELETE), tự động xóa cache liên quan để dữ liệu luôn tươi mới
+  if (!isGet) {
+    if (path.includes('/courses')) clearApiCache('courses');
+    if (path.includes('/students')) clearApiCache('students');
+    if (path.includes('/reports')) clearApiCache('reports');
+    clearApiCache('overview');
+  }
+
+  // Đối với request GET: Kiểm tra cache trước tiên
+  if (isGet && !options.noCache) {
+    const cached = getCachedData(cacheKey);
+    if (cached) {
+      // Nếu dữ liệu còn tươi (< 60s), trả về ngay lập tức (0ms)
+      if (!cached.isStale) {
+        return cached.data;
+      }
+      // Nếu dữ liệu đã cũ, trả về dữ liệu cache ngay để giao diện không bị giật, đồng thời revalidate ngầm
+      revalidateInBackground(path, options, cacheKey);
+      return cached.data;
+    }
+  }
+
+  // Chống trùng lặp request: Nếu request này đang được tải từ component khác, dùng chung Promise
+  if (isGet && inflightRequests.has(cacheKey)) {
+    return inflightRequests.get(cacheKey);
+  }
+
+  const fetchPromise = (async () => {
+    try {
+      const res = await fetch(`${BASE_URL}${path}`, {
+        headers: { 'Content-Type': 'application/json', ...options.headers },
+        ...options
+      });
+
+      const text = await res.text();
+      let json = null;
+      try {
+        json = text ? JSON.parse(text) : {};
+      } catch (e) {
+        if (!res.ok) {
+          throw new Error(`Máy chủ phản hồi mã lỗi ${res.status}: ${res.statusText || 'Endpoint chưa sẵn sàng hoặc máy chủ đang khởi động'}`);
+        }
+        throw new Error('Dữ liệu từ máy chủ không phải JSON hợp lệ');
+      }
+
+      if (!res.ok || (json && json.success === false)) {
+        throw new Error(json?.message || `Lỗi từ máy chủ (${res.status})`);
+      }
+
+      const result = json.data !== undefined ? json.data : json;
+
+      // Lưu vào cache nếu là GET
+      if (isGet && !options.noCache) {
+        setCachedData(cacheKey, result);
+      }
+
+      return result;
+    } finally {
+      inflightRequests.delete(cacheKey);
+    }
+  })();
+
+  if (isGet) {
+    inflightRequests.set(cacheKey, fetchPromise);
+  }
+
+  return fetchPromise;
+}
+
+// Chạy revalidate ngầm không chặn UI
+async function revalidateInBackground(path, options, cacheKey) {
+  if (inflightRequests.has(cacheKey)) return;
   try {
     const res = await fetch(`${BASE_URL}${path}`, {
-      cache: 'no-store',
-      headers: { 'Content-Type': 'application/json', ...options.headers },
-      ...options
+      headers: { 'Content-Type': 'application/json', ...options.headers }
     });
-
-    const text = await res.text();
-    let json = null;
-    try {
-      json = text ? JSON.parse(text) : {};
-    } catch (e) {
-      if (!res.ok) {
-        throw new Error(`Máy chủ phản hồi mã lỗi ${res.status}: ${res.statusText || 'Endpoint chưa sẵn sàng hoặc máy chủ đang khởi động'}`);
+    if (res.ok) {
+      const json = await res.json();
+      if (json && json.success !== false) {
+        const freshData = json.data !== undefined ? json.data : json;
+        setCachedData(cacheKey, freshData);
       }
-      throw new Error('Dữ liệu từ máy chủ không phải JSON hợp lệ');
     }
-
-    if (!res.ok || (json && json.success === false)) {
-      throw new Error(json?.message || `Lỗi từ máy chủ (${res.status})`);
-    }
-    return json.data !== undefined ? json.data : json;
-  } catch (err) {
-    throw err;
+  } catch (e) {
+    // Lỗi ngầm bỏ qua không ảnh hưởng người dùng
   }
 }
 

@@ -29,8 +29,19 @@ export default function CoursesTab({ initialSelectedCourseId }) {
     loadCourses();
   }, [search, selectedTier]);
 
+  // Lắng nghe khi người dùng chọn khóa học từ Tab Tổng quan
+  useEffect(() => {
+    if (initialSelectedCourseId && courses.length > 0) {
+      const found = courses.find(c => c.id === initialSelectedCourseId);
+      if (found) {
+        setSelectedCourse(found);
+        setIsDetailModalOpen(true);
+      }
+    }
+  }, [initialSelectedCourseId, courses]);
+
   async function loadCourses(silent = false) {
-    if (!silent) setLoading(true);
+    if (!silent && courses.length === 0) setLoading(true);
     setError('');
     try {
       const data = await fetchCourses(search, selectedTier);
@@ -47,9 +58,9 @@ export default function CoursesTab({ initialSelectedCourseId }) {
       }
     } catch (err) {
       setError(err.message);
-      setCourses([]);
+      if (courses.length === 0) setCourses([]);
     } finally {
-      if (!silent) setLoading(false);
+      setLoading(false);
     }
   }
 

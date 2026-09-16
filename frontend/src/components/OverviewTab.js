@@ -10,10 +10,15 @@ export default function OverviewTab({ setActiveTab, onSelectCourse }) {
 
   useEffect(() => {
     async function loadData() {
-      setLoading(true);
-      const res = await fetchOverviewStats();
-      setStats(res);
-      setLoading(false);
+      if (!stats) setLoading(true);
+      try {
+        const res = await fetchOverviewStats();
+        if (res) setStats(res);
+      } catch (e) {
+        console.warn('Lỗi tải thống kê:', e);
+      } finally {
+        setLoading(false);
+      }
     }
     loadData();
   }, []);
