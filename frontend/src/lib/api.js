@@ -570,16 +570,29 @@ export async function forgotPasswordApi({ identity, cccd, new_password }) {
 }
 
 export async function sendResetOtpApi({ identity }) {
-  const res = await fetch(`${BASE_URL}/auth/send-reset-otp`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ identity })
-  });
-  const json = await res.json();
-  if (!res.ok || !json.success) {
-    throw new Error(json.message || 'Không thể gửi mã OTP qua Gmail');
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 12000); // 12s timeout
+
+  try {
+    const res = await fetch(`${BASE_URL}/auth/send-reset-otp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ identity }),
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+    const json = await res.json();
+    if (!res.ok || !json.success) {
+      throw new Error(json.message || 'Không thể gửi mã OTP qua Gmail');
+    }
+    return json;
+  } catch (err) {
+    clearTimeout(timeoutId);
+    if (err.name === 'AbortError') {
+      throw new Error('Yêu cầu gửi OTP quá thời gian chờ (12s). Bạn có thể dùng tab "Xác minh CCCD" để đổi ngay hoặc bấm gửi lại!');
+    }
+    throw err;
   }
-  return json;
 }
 
 export async function verifyResetOtpApi({ identity, otp, new_password }) {

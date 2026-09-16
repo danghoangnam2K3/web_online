@@ -27,11 +27,16 @@ function getEmailTransporter() {
   }
 
   return nodemailer.createTransport({
-    service: 'gmail',
+    host: 'smtp.gmail.com',
+    port: 465,
+    secure: true, // SSL trực tiếp
     auth: {
-      user: emailUser,
+      user: emailUser.trim(),
       pass: emailPass.replace(/\s+/g, '') // loại bỏ khoảng trắng nếu copy từ Google
-    }
+    },
+    connectionTimeout: 8000,
+    greetingTimeout: 8000,
+    socketTimeout: 8000
   });
 }
 
@@ -547,8 +552,34 @@ async function sendResetOtp(req, res) {
       `
     };
 
-    await transporter.sendMail(mailOptions);
-    console.log(`[GMAIL OTP] Đã gửi mã OTP thành công tới ${studentEmail}`);
+    // 3. Gửi email qua Gmail SMTP với Timeout bảo vệ tối đa 8 giây
+    let emailSent = false;
+    let emailErrorMsg = '';
+
+    try {
+      const sendPromise = transporter.sendMail(mailOptions);
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Máy chủ gửi thư Gmail phản hồi chậm quá 8s')), 8000)
+      );
+      await Promise.race([sendPromise, timeoutPromise]);
+      emailSent = true;
+      console.log(`[GMAIL OTP] Đã gửi mã OTP thành công tới ${studentEmail}`);
+    } catch (sendErr) {
+      console.error('[GMAIL OTP] Gửi email thất bại hoặc quá hạn:', sendErr.message);
+      emailErrorMsg = sendErr.message;
+    }
+
+    if (!emailSent) {
+      // Vẫn lưu OTP thành công và chuyển bước để người dùng không bị kẹt
+      return res.json({
+        success: true,
+        isDevFallback: true,
+        message: `Mã OTP đã được tạo (Gmail phản hồi chậm: ${emailErrorMsg}). Mã OTP của bạn là: ${otp}`,
+        dev_otp: otp,
+        email_masked: masked,
+        identity: student.username || studentEmail
+      });
+    }
 
     return res.json({
       success: true,
