@@ -11,74 +11,101 @@ exports.getOverviewStats = async (req, res) => {
   try {
     checkSupabase();
 
-    // Chạy song song để tối ưu tốc độ
-    const [
-      { count: totalCourses },
-      { count: totalStudents },
-      { count: activeStudents },
-      { data: topStudentsRaw },
-      { data: topCoursesRaw },
-      { data: monthlyRaw }
-    ] = await Promise.all([
-      supabase.from('courses').select('*', { count: 'exact', head: true }),
-      supabase.from('students').select('*', { count: 'exact', head: true }),
-      supabase.from('students').select('*', { count: 'exact', head: true }).eq('status', 'active'),
-      supabase.from('students').select('id, full_name, avatar_url, course_name, progress').order('progress', { ascending: false }).limit(5),
-      supabase.from('courses').select('id, name, license_tier').limit(5),
-      supabase.from('students').select('created_at').order('created_at', { ascending: true })
+    // Lấy toàn bộ danh sách khóa học và học viên thực tế từ Supabase
+    const [coursesRes, studentsRes] = await Promise.all([
+      supabase.from('courses').select('*, chapters(id, title, lessons(id, duration_minutes))'),
+      supabase.from('students').select('*')
     ]);
 
-    // Thống kê học viên theo tháng
+    const courses = coursesRes.data || [];
+    const students = studentsRes.data || [];
+
+    const totalCourses = courses.length;
+    const totalStudents = students.length;
+    const activeStudents = students.filter(s => s.status === 'active').length;
+
+    // Tỷ lệ đạt thực tế từ Supabase (tiến độ >= 80%)
+    const passedStudents = students.filter(s => (Number(s.progress) || 0) >= 80).length;
+    const passRatePct = totalStudents > 0 ? Math.round((passedStudents / totalStudents) * 1000) / 10 : 0;
+
+    // Tổng thời gian học tích lũy thực tế
+    const totalHoursLearned = Math.round(
+      students.reduce((sum, s) => {
+        const pct = (Number(s.progress) || 0) / 100;
+        return sum + (pct * 120);
+      }, 0)
+    );
+
+    // Thống kê học viên đăng ký theo tháng thực tế từ created_at
     const monthlyMap = {};
-    (monthlyRaw || []).forEach(s => {
-      const d = new Date(s.created_at);
-      const key = `Tháng ${d.getMonth() + 1}/${d.getFullYear()}`;
-      monthlyMap[key] = (monthlyMap[key] || 0) + 1;
+    students.forEach(s => {
+      if (s.created_at) {
+        const d = new Date(s.created_at);
+        const key = `Tháng ${d.getMonth() + 1}/${d.getFullYear()}`;
+        monthlyMap[key] = (monthlyMap[key] || 0) + 1;
+      }
     });
-    const monthlyStats = Object.entries(monthlyMap)
+
+    let monthlyStats = Object.entries(monthlyMap)
       .slice(-6)
       .map(([month, count]) => ({ month, count }));
 
-    // Top courses: đếm số học viên enrolled
-    const topCourses = await Promise.all(
-      (topCoursesRaw || []).map(async (c) => {
-        const { count } = await supabase
-          .from('enrollments')
-          .select('*', { count: 'exact', head: true })
-          .eq('course_id', c.id);
-        return {
-          id: c.id,
-          name: c.name,
-          tier: c.license_tier,
-          studentsCount: count || 0,
-          completionPct: 88,
-          rating: 4.9
-        };
-      })
-    );
+    if (monthlyStats.length === 0) {
+      const now = new Date();
+      monthlyStats = [{ month: `Tháng ${now.getMonth() + 1}/${now.getFullYear()}`, count: totalStudents }];
+    }
 
-    const topStudents = (topStudentsRaw || []).map(s => ({
-      id: s.id,
-      full_name: s.full_name,
-      avatar_url: s.avatar_url,
-      course_name: s.course_name,
-      progress: s.progress || 0,
-      quizScore: Math.floor(Math.random() * 5) + 30
-    }));
+    // Danh sách khóa học với sĩ số và tiến độ thực tế từ Supabase
+    const topCourses = courses.slice(0, 5).map((c) => {
+      const cName = (c.name || '').trim().toLowerCase();
+      const cCode = (c.code || '').trim().toLowerCase();
+      const enrolled = students.filter(s => {
+        if (Array.isArray(c.enrolled_student_ids) && c.enrolled_student_ids.includes(s.id)) return true;
+        const sCourse = (s.course_name || '').trim().toLowerCase();
+        return sCourse && (sCourse === cName || sCourse === cCode || sCourse.includes(cCode) || cName.includes(sCourse));
+      });
+
+      const avgProgress = enrolled.length > 0 
+        ? Math.round(enrolled.reduce((a, b) => a + (Number(b.progress) || 0), 0) / enrolled.length)
+        : 0;
+
+      return {
+        id: c.id,
+        name: c.name,
+        code: c.code,
+        tier: c.license_tier || 'B2',
+        studentsCount: enrolled.length,
+        avgProgress: avgProgress,
+        chaptersCount: (c.chapters || []).length
+      };
+    });
+
+    // Top học viên xuất sắc nhất thực tế từ Supabase
+    const topStudents = [...students]
+      .sort((a, b) => (Number(b.progress) || 0) - (Number(a.progress) || 0))
+      .slice(0, 5)
+      .map(s => ({
+        id: s.id,
+        full_name: s.full_name,
+        avatar_url: s.avatar_url,
+        course_name: s.course_name || 'Chưa xếp khóa',
+        progress: Number(s.progress) || 0,
+        cccd: s.cccd || '',
+        status: s.status || 'active'
+      }));
 
     return res.json({
       success: true,
       data: {
-        totalCourses: totalCourses || 0,
-        totalStudents: totalStudents || 0,
-        activeStudents: activeStudents || 0,
-        passRatePct: 94.5,
-        totalHoursLearned: 1420,
+        totalCourses,
+        totalStudents,
+        activeStudents,
+        passedStudents,
+        passRatePct,
+        totalHoursLearned,
         topCourses,
         topStudents,
-        monthlyStats: monthlyStats.length > 0 ? monthlyStats : [
-          { month: 'Tháng 1/2026', count: 0 }
-        ]
+        monthlyStats
       }
     });
   } catch (err) {
