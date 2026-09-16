@@ -346,6 +346,18 @@ exports.saveStudyProgress = async (req, res) => {
     // 2. Cập nhật % tiến độ tổng quát cho học viên trong bảng students
     try {
       if (resolvedStudentId) {
+        // Tìm tổng số bài học của khóa học mà học viên tham gia
+        let totalCourseLessons = 0;
+        if (course_id) {
+          const { data: chapters } = await supabase
+            .from('chapters')
+            .select('id, lessons(id)')
+            .eq('course_id', course_id);
+          if (chapters && chapters.length > 0) {
+            totalCourseLessons = chapters.reduce((sum, ch) => sum + (ch.lessons?.length || 0), 0);
+          }
+        }
+
         const { data: allProg } = await supabase
           .from('study_progress')
           .select('watched_seconds, is_completed')
@@ -353,7 +365,8 @@ exports.saveStudyProgress = async (req, res) => {
 
         if (allProg && allProg.length > 0) {
           const completedCount = allProg.filter(p => p.is_completed).length;
-          const pct = Math.min(100, Math.round((completedCount / Math.max(1, allProg.length)) * 100));
+          const denominator = totalCourseLessons > 0 ? totalCourseLessons : Math.max(1, allProg.length);
+          const pct = Math.min(100, Math.round((completedCount / denominator) * 100));
           await supabase
             .from('students')
             .update({ progress: pct, updated_at: new Date().toISOString() })

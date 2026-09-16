@@ -234,17 +234,30 @@ export default function StudentsTab() {
 
                     {/* Tiến độ */}
                     <td className="py-3.5 px-4 text-center">
-                      <div className="w-24 mx-auto">
-                        <div className="flex justify-between text-[10px] font-bold mb-0.5">
-                          <span>{st.progress || 0}%</span>
+                      {st.role === 'admin' ? (
+                        <span className="text-[11px] text-slate-400 font-semibold italic bg-slate-50 border border-slate-200 px-2 py-0.5 rounded-md">
+                          Không áp dụng
+                        </span>
+                      ) : (
+                        <div className="w-24 mx-auto">
+                          <div className="flex justify-between text-[10px] font-bold mb-0.5">
+                            <span className={st.progress >= 80 ? 'text-emerald-700' : 'text-slate-700'}>
+                              {st.progress || 0}%
+                            </span>
+                            {st.progress >= 80 && (
+                              <span className="text-[9px] text-emerald-600 font-extrabold">ĐẠT</span>
+                            )}
+                          </div>
+                          <div className="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all duration-300 ${
+                                st.progress >= 80 ? 'bg-emerald-500' : 'bg-blue-600'
+                              }`}
+                              style={{ width: `${st.progress || 0}%` }}
+                            ></div>
+                          </div>
                         </div>
-                        <div className="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-blue-600 rounded-full"
-                            style={{ width: `${st.progress || 0}%` }}
-                          ></div>
-                        </div>
-                      </div>
+                      )}
                     </td>
 
                     {/* Thao tác Chỉnh sửa / Xem & Xóa */}

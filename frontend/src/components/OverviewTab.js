@@ -38,50 +38,109 @@ export default function OverviewTab({ setActiveTab, onSelectCourse }) {
   const totalCourses = coursesData.length || stats?.totalCourses || 0;
   const activeCourses = coursesData.filter(c => c.status !== 'archived').length || totalCourses;
 
-  const totalStudents = studentsData.length || stats?.totalStudents || 0;
-  const activeStudents = studentsData.filter(s => s.status === 'active').length || totalStudents;
+  // Lọc riêng danh sách học viên thực tế (loại bỏ tài khoản Quản trị viên khỏi các chỉ số học viên)
+  const realStudentsList = useMemo(() => {
+    return (studentsData || []).filter(s => s.role !== 'admin');
+  }, [studentsData]);
 
-  // Tỷ lệ hoàn thành đạt chuẩn (tiến độ >= 80%)
-  const passedStudents = studentsData.filter(s => (Number(s.progress) || 0) >= 80).length;
+  const totalStudents = realStudentsList.length || stats?.totalStudents || 0;
+  const activeStudents = realStudentsList.filter(s => s.status === 'active').length || totalStudents;
+
+  // Tỷ lệ hoàn thành đạt chuẩn (tiến độ >= 80% chỉ tính trên học viên)
+  const passedStudents = realStudentsList.filter(s => (Number(s.progress) || 0) >= 80).length;
   const passRatePct = totalStudents > 0 
     ? Math.round((passedStudents / totalStudents) * 100) 
     : (stats?.passRatePct || 0);
 
   // Tổng thời lượng giờ học tích lũy thực tế
-  const totalHoursLearned = useMemo(() => {
-    if (studentsData.length > 0) {
-      return Math.round(
-        studentsData.reduce((sum, s) => {
-          const pct = (Number(s.progress) || 0) / 100;
-          return sum + (pct * 120);
-        }, 0)
-      );
+  const studyTimeStats = useMemo(() => {
+    let totalMinutes = 0;
+    if (realStudentsList.length > 0) {
+      realStudentsList.forEach(s => {
+        const pct = (Number(s.progress) || 0) / 100;
+        if (pct <= 0) return;
+
+        const course = coursesData.find(c => {
+          const cName = (c.name || '').trim().toLowerCase();
+          const sCourse = (s.course_name || '').trim().toLowerCase();
+          return sCourse && (sCourse === cName || cName.includes(sCourse));
+        });
+
+        let courseMin = 0;
+        if (course?.chapters && course.chapters.length > 0) {
+          course.chapters.forEach(ch => {
+            if (Array.isArray(ch.lessons) && ch.lessons.length > 0) {
+              ch.lessons.forEach(l => {
+                courseMin += Number(l.duration_minutes) || 15;
+              });
+            } else {
+              courseMin += Number(ch.duration_minutes) || 30;
+            }
+          });
+        }
+        if (courseMin === 0) courseMin = 60;
+        totalMinutes += pct * courseMin;
+      });
     }
-    return stats?.totalHoursLearned || 0;
-  }, [studentsData, stats]);
 
-  const avgHours = totalStudents > 0 ? Math.round(totalHoursLearned / totalStudents) : 0;
+    totalMinutes = Math.round(totalMinutes);
+    const totalHours = Math.round((totalMinutes / 60) * 10) / 10;
 
-  // 2. Thống kê học viên đăng ký theo tháng thực tế từ trường created_at trong Supabase
+    let displayTime = '0h';
+    if (totalMinutes > 0 && totalMinutes < 60) {
+      displayTime = `${totalMinutes} phút`;
+    } else if (totalMinutes >= 60) {
+      displayTime = `${totalHours}h`;
+    }
+
+    const avgMin = totalStudents > 0 ? Math.round(totalMinutes / totalStudents) : 0;
+    let avgDisplay = `${avgMin} phút/học viên`;
+    if (avgMin >= 60) {
+      avgDisplay = `${(avgMin / 60).toFixed(1)}h/học viên`;
+    }
+
+    return { totalMinutes, totalHours, displayTime, avgDisplay };
+  }, [realStudentsList, coursesData, totalStudents]);
+
+  // 2. Thống kê học viên đăng ký theo tháng (luôn hiển thị dải 6 tháng liên tiếp gần nhất)
   const monthlyStats = useMemo(() => {
-    if (studentsData.length > 0) {
-      const monthlyMap = {};
-      studentsData.forEach(s => {
+    const now = new Date();
+    const last6 = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const mNum = d.getMonth() + 1;
+      const yNum = d.getFullYear();
+      last6.push({
+        shortLabel: `T${mNum}`,
+        fullLabel: `Tháng ${mNum}/${yNum}`,
+        key: `Tháng ${mNum}/${yNum}`,
+        month: `Tháng ${mNum}/${yNum}`,
+        count: 0
+      });
+    }
+
+    if (realStudentsList.length > 0) {
+      realStudentsList.forEach(s => {
         if (s.created_at) {
           const d = new Date(s.created_at);
           const key = `Tháng ${d.getMonth() + 1}/${d.getFullYear()}`;
-          monthlyMap[key] = (monthlyMap[key] || 0) + 1;
+          const found = last6.find(m => m.key === key);
+          if (found) found.count++;
         }
       });
-      const entries = Object.entries(monthlyMap).map(([month, count]) => ({ month, count }));
-      if (entries.length > 0) return entries.slice(-6);
+      return last6;
     }
+
     if (stats?.monthlyStats && stats.monthlyStats.length > 0) {
-      return stats.monthlyStats;
+      return stats.monthlyStats.map(m => ({
+        ...m,
+        shortLabel: m.month.replace('Tháng ', 'T'),
+        fullLabel: m.month
+      }));
     }
-    const now = new Date();
-    return [{ month: `Tháng ${now.getMonth() + 1}/${now.getFullYear()}`, count: totalStudents }];
-  }, [studentsData, stats, totalStudents]);
+
+    return last6;
+  }, [realStudentsList, stats]);
 
   const maxMonthlyCount = useMemo(() => {
     return Math.max(...monthlyStats.map(m => m.count), 1);
@@ -93,7 +152,7 @@ export default function OverviewTab({ setActiveTab, onSelectCourse }) {
       return coursesData.map(c => {
         const cName = (c.name || '').trim().toLowerCase();
         const cCode = (c.code || '').trim().toLowerCase();
-        const enrolled = studentsData.filter(s => {
+        const enrolled = realStudentsList.filter(s => {
           if (Array.isArray(c.enrolled_student_ids) && c.enrolled_student_ids.includes(s.id)) return true;
           const sCourse = (s.course_name || '').trim().toLowerCase();
           return sCourse && (sCourse === cName || sCourse === cCode || sCourse.includes(cCode) || cName.includes(sCourse));
@@ -115,17 +174,17 @@ export default function OverviewTab({ setActiveTab, onSelectCourse }) {
       }).sort((a, b) => b.studentsCount - a.studentsCount || b.avgProgress - a.avgProgress).slice(0, 5);
     }
     return stats?.topCourses || [];
-  }, [coursesData, studentsData, stats]);
+  }, [coursesData, realStudentsList, stats]);
 
-  // 4. Danh sách Top Học Viên thực tế từ Supabase sắp xếp theo tiến độ
+  // 4. Danh sách Top Học Viên thực tế từ Supabase sắp xếp theo tiến độ (loại bỏ admin)
   const topStudents = useMemo(() => {
-    if (studentsData.length > 0) {
-      return [...studentsData]
+    if (realStudentsList.length > 0) {
+      return [...realStudentsList]
         .sort((a, b) => (Number(b.progress) || 0) - (Number(a.progress) || 0))
         .slice(0, 5);
     }
-    return stats?.topStudents || [];
-  }, [studentsData, stats]);
+    return (stats?.topStudents || []).filter(s => s.role !== 'admin');
+  }, [realStudentsList, stats]);
 
   if (loading && !coursesData.length && !studentsData.length) {
     return (
@@ -208,9 +267,9 @@ export default function OverviewTab({ setActiveTab, onSelectCourse }) {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Tổng Giờ Học Tích Lũy</p>
-              <h3 className="text-2xl font-bold text-slate-900 mt-1">{totalHoursLearned}h</h3>
+              <h3 className="text-2xl font-bold text-slate-900 mt-1">{studyTimeStats.displayTime}</h3>
               <p className="text-xs font-medium text-indigo-600 flex items-center mt-1">
-                <Clock className="w-3.5 h-3.5 mr-1" /> Trung bình ~{avgHours}h/học viên
+                <Clock className="w-3.5 h-3.5 mr-1" /> Trung bình ~{studyTimeStats.avgDisplay}
               </p>
             </div>
             <div className="w-12 h-12 rounded-xl bg-indigo-50 flex items-center justify-center text-indigo-600">
@@ -233,22 +292,31 @@ export default function OverviewTab({ setActiveTab, onSelectCourse }) {
         </div>
 
         {/* Visual Bar Chart động 100% */}
-        <div className="h-56 flex items-end justify-between gap-3 pt-6 pb-2 border-b border-slate-100">
+        <div className="h-56 flex items-end justify-between gap-2 sm:gap-4 pt-6 pb-2 border-b border-slate-100">
           {monthlyStats.map((item, index) => {
-            const heightPct = Math.min(100, Math.max(20, Math.round((item.count / maxMonthlyCount) * 100)));
+            const isZero = item.count === 0;
+            const heightPct = isZero 
+              ? 5 
+              : Math.min(100, Math.max(18, Math.round((item.count / maxMonthlyCount) * 100)));
             return (
               <div key={index} className="flex-1 flex flex-col items-center group relative">
-                <div className="opacity-0 group-hover:opacity-100 absolute -top-8 bg-slate-900 text-white text-[11px] font-bold px-2 py-1 rounded transition-opacity pointer-events-none z-10 whitespace-nowrap">
-                  {item.count} học viên ghi danh
+                <div className="opacity-0 group-hover:opacity-100 absolute -top-8 bg-slate-900 text-white text-[11px] font-bold px-2 py-1 rounded transition-opacity pointer-events-none z-10 whitespace-nowrap shadow-lg">
+                  {item.fullLabel || item.month}: {item.count} học viên
                 </div>
                 <div
-                  className="w-full max-w-[56px] bg-gradient-to-t from-blue-700 via-blue-600 to-blue-400 rounded-t-lg transition-all duration-500 group-hover:brightness-110 shadow-sm flex items-start justify-center pt-1"
+                  className={`w-full max-w-[48px] rounded-t-lg transition-all duration-500 group-hover:brightness-110 shadow-sm flex items-start justify-center pt-1 ${
+                    isZero
+                      ? 'bg-slate-100 border-t-2 border-slate-300'
+                      : 'bg-gradient-to-t from-blue-700 via-blue-600 to-blue-400'
+                  }`}
                   style={{ height: `${heightPct}%` }}
                 >
-                  <span className="text-[10px] font-bold text-white/90">{item.count}</span>
+                  {!isZero && (
+                    <span className="text-[10px] font-bold text-white/95">{item.count}</span>
+                  )}
                 </div>
-                <span className="text-[11px] font-medium text-slate-600 mt-2 rotate-[-20px] sm:rotate-0 text-center">
-                  {item.month}
+                <span className="text-[11px] font-medium text-slate-600 mt-2 text-center">
+                  {item.shortLabel || item.month}
                 </span>
               </div>
             );

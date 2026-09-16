@@ -11,49 +11,83 @@ exports.getOverviewStats = async (req, res) => {
   try {
     checkSupabase();
 
-    // Lấy toàn bộ danh sách khóa học và học viên thực tế từ Supabase
-    const [coursesRes, studentsRes] = await Promise.all([
-      supabase.from('courses').select('*, chapters(id, title, lessons(id, duration_minutes))'),
-      supabase.from('students').select('*')
+    // Lấy toàn bộ danh sách khóa học, học viên và tiến độ thực tế từ Supabase
+    const [coursesRes, studentsRes, studyProgressRes] = await Promise.all([
+      supabase.from('courses').select('*, chapters(id, title, duration_minutes, lessons(id, duration_minutes))'),
+      supabase.from('students').select('*'),
+      supabase.from('study_progress').select('watched_seconds, student_id')
     ]);
 
     const courses = coursesRes.data || [];
-    const students = studentsRes.data || [];
+    const allUsers = studentsRes.data || [];
+
+    // Tách riêng danh sách học viên thực tế (loại bỏ tài khoản Quản trị viên khỏi chỉ tiêu học viên)
+    const students = allUsers.filter(s => s.role !== 'admin');
 
     const totalCourses = courses.length;
     const totalStudents = students.length;
     const activeStudents = students.filter(s => s.status === 'active').length;
 
-    // Tỷ lệ đạt thực tế từ Supabase (tiến độ >= 80%)
+    // Tỷ lệ đạt thực tế từ Supabase (tiến độ >= 80% chỉ tính trên học viên)
     const passedStudents = students.filter(s => (Number(s.progress) || 0) >= 80).length;
     const passRatePct = totalStudents > 0 ? Math.round((passedStudents / totalStudents) * 1000) / 10 : 0;
 
     // Tổng thời gian học tích lũy thực tế
-    const totalHoursLearned = Math.round(
-      students.reduce((sum, s) => {
-        const pct = (Number(s.progress) || 0) / 100;
-        return sum + (pct * 120);
-      }, 0)
-    );
+    const totalWatchedSec = (studyProgressRes.data || []).reduce((sum, p) => sum + (Number(p.watched_seconds) || 0), 0);
+    let totalHoursLearned = 0;
 
-    // Thống kê học viên đăng ký theo tháng thực tế từ created_at
-    const monthlyMap = {};
+    if (totalWatchedSec > 0) {
+      totalHoursLearned = Math.round((totalWatchedSec / 3600) * 10) / 10;
+    } else {
+      // Nếu chưa có lịch sử watched_seconds trong study_progress, tính dựa trên thời lượng môn học thực tế
+      let totalMinutes = 0;
+      students.forEach(s => {
+        const pct = (Number(s.progress) || 0) / 100;
+        if (pct <= 0) return;
+        const course = courses.find(c => {
+          const cName = (c.name || '').trim().toLowerCase();
+          const sCourse = (s.course_name || '').trim().toLowerCase();
+          return sCourse && (sCourse === cName || cName.includes(sCourse));
+        });
+        let courseMin = 0;
+        if (course?.chapters && course.chapters.length > 0) {
+          course.chapters.forEach(ch => {
+            if (Array.isArray(ch.lessons) && ch.lessons.length > 0) {
+              ch.lessons.forEach(l => {
+                courseMin += Number(l.duration_minutes) || 15;
+              });
+            } else {
+              courseMin += Number(ch.duration_minutes) || 30;
+            }
+          });
+        }
+        if (courseMin === 0) courseMin = 60;
+        totalMinutes += pct * courseMin;
+      });
+      totalHoursLearned = Math.round((totalMinutes / 60) * 10) / 10;
+    }
+
+    // Thống kê học viên đăng ký theo tháng thực tế (dải 6 tháng liên tiếp gần nhất)
+    const now = new Date();
+    const last6Months = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const key = `Tháng ${d.getMonth() + 1}/${d.getFullYear()}`;
+      last6Months.push({ month: key, count: 0 });
+    }
+
     students.forEach(s => {
       if (s.created_at) {
         const d = new Date(s.created_at);
         const key = `Tháng ${d.getMonth() + 1}/${d.getFullYear()}`;
-        monthlyMap[key] = (monthlyMap[key] || 0) + 1;
+        const found = last6Months.find(m => m.month === key);
+        if (found) {
+          found.count++;
+        }
       }
     });
 
-    let monthlyStats = Object.entries(monthlyMap)
-      .slice(-6)
-      .map(([month, count]) => ({ month, count }));
-
-    if (monthlyStats.length === 0) {
-      const now = new Date();
-      monthlyStats = [{ month: `Tháng ${now.getMonth() + 1}/${now.getFullYear()}`, count: totalStudents }];
-    }
+    const monthlyStats = last6Months;
 
     // Danh sách khóa học với sĩ số và tiến độ thực tế từ Supabase
     const topCourses = courses.slice(0, 5).map((c) => {
@@ -80,7 +114,7 @@ exports.getOverviewStats = async (req, res) => {
       };
     });
 
-    // Top học viên xuất sắc nhất thực tế từ Supabase
+    // Top học viên xuất sắc nhất thực tế từ Supabase (loại bỏ admin)
     const topStudents = [...students]
       .sort((a, b) => (Number(b.progress) || 0) - (Number(a.progress) || 0))
       .slice(0, 5)

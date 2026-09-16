@@ -246,18 +246,25 @@ export default function StudentDetailModal({ isOpen, onClose, student, onUpdateS
               </div>
 
               {/* Giám sát Tiến Độ Học Tập */}
-              <div className="p-4 bg-blue-50/60 rounded-xl border border-blue-100">
-                <div className="flex justify-between items-center text-xs mb-1.5">
-                  <span className="font-bold text-blue-900">Giám sát tiến độ học tập:</span>
-                  <span className="font-extrabold text-blue-700 text-sm">{student.progress || 0}%</span>
+              {student.role === 'admin' ? (
+                <div className="p-3.5 bg-purple-50/70 rounded-xl border border-purple-100 flex items-center justify-between text-xs">
+                  <span className="font-bold text-purple-900">Vai trò Quản trị viên:</span>
+                  <span className="text-purple-700 font-semibold">Tài khoản quản lý (Không áp dụng chỉ tiêu học tập)</span>
                 </div>
-                <div className="w-full h-2.5 bg-blue-200 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-blue-600 rounded-full transition-all duration-500"
-                    style={{ width: `${student.progress || 0}%` }}
-                  ></div>
+              ) : (
+                <div className="p-4 bg-blue-50/60 rounded-xl border border-blue-100">
+                  <div className="flex justify-between items-center text-xs mb-1.5">
+                    <span className="font-bold text-blue-900">Giám sát tiến độ học tập:</span>
+                    <span className="font-extrabold text-blue-700 text-sm">{student.progress || 0}%</span>
+                  </div>
+                  <div className="w-full h-2.5 bg-blue-200 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-blue-600 rounded-full transition-all duration-500"
+                      style={{ width: `${student.progress || 0}%` }}
+                    ></div>
+                  </div>
                 </div>
-              </div>
+              )}
 
               <div className="pt-4 flex flex-wrap justify-between items-center gap-2">
                 <button
@@ -397,6 +404,34 @@ export default function StudentDetailModal({ isOpen, onClose, student, onUpdateS
                   className="w-full px-3 py-2 border rounded-lg text-xs outline-none focus:ring-1 focus:ring-blue-500"
                 />
               </div>
+
+              {formData.role !== 'admin' && (
+                <div className="p-3 bg-blue-50/50 border border-blue-100 rounded-xl">
+                  <label className="block text-xs font-bold text-slate-800 mb-1">
+                    Tiến độ hoàn thành khóa học (%)
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      value={formData.progress !== undefined ? formData.progress : (student.progress || 0)}
+                      onChange={(e) => setFormData({ ...formData, progress: Math.min(100, Math.max(0, parseInt(e.target.value) || 0)) })}
+                      className="w-24 px-3 py-1.5 border border-slate-300 rounded-lg text-xs font-bold outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, progress: 0 })}
+                      className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-xs font-bold shadow-xs transition-colors"
+                    >
+                      Reset về 0%
+                    </button>
+                    <span className="text-[11px] text-slate-500 italic ml-1">
+                      (Dùng khi cần đặt lại tiến độ học)
+                    </span>
+                  </div>
+                </div>
+              )}
 
               {/* Mục Đổi Mật Khẩu Tương Tự Trang Account */}
               <div className="pt-2 border-t border-slate-200 space-y-2">
