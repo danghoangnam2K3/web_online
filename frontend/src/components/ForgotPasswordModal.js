@@ -68,7 +68,8 @@ export default function ForgotPasswordModal({ isOpen, onClose, defaultIdentity =
       setOtpStep(2);
       setCountdown(60); // 60s cooldown before resend
       if (res.isDevFallback && res.dev_otp) {
-        setSuccess(`[Thử nghiệm] Mã OTP của bạn là: ${res.dev_otp}`);
+        setOtpCode(res.dev_otp);
+        setSuccess(`Mã xác nhận OTP của bạn là: ${res.dev_otp} (Đã tự động điền sẵn)`);
       } else {
         setSuccess(res.message || 'Mã OTP đã được gửi đến email của bạn!');
       }
