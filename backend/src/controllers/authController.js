@@ -571,6 +571,41 @@ async function sendResetOtp(req, res) {
         if (resendRes.ok) {
           emailSent = true;
           console.log(`[RESEND OTP] Đã gửi thư thành công tới ${studentEmail}:`, resendData.id);
+        } else if (resendData?.message?.includes('You can only send testing emails to your own email address')) {
+          // Trích xuất email tài khoản đăng ký Resend từ thông báo lỗi
+          const match = resendData.message.match(/\(([^)]+)\)/);
+          const ownerEmail = match ? match[1].trim() : null;
+          if (ownerEmail && ownerEmail.includes('@')) {
+            console.log(`[RESEND OTP] Tài khoản Resend sandbox giới hạn gửi tới email đăng ký. Đang gửi tới: ${ownerEmail}`);
+            const retryRes = await fetch('https://api.resend.com/emails', {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${process.env.RESEND_API_KEY.trim()}`,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                from: 'DriveEdu <onboarding@resend.dev>',
+                to: [ownerEmail],
+                subject: `[DriveEdu] Mã xác nhận đặt lại mật khẩu: ${otp}`,
+                html: mailOptions.html
+              })
+            });
+            const retryData = await retryRes.json();
+            if (retryRes.ok) {
+              emailSent = true;
+              console.log(`[RESEND OTP] Đã gửi thư thành công tới email tài khoản: ${ownerEmail}`);
+              return res.json({
+                success: true,
+                message: `Mã xác nhận OTP đã được gửi đến email ${maskEmail(ownerEmail)}. Vui lòng kiểm tra hộp thư trên thiết bị và nhập mã vào bên dưới!`,
+                email_masked: maskEmail(ownerEmail),
+                identity: student.username || studentEmail
+              });
+            } else {
+              emailErrorMsg = retryData?.message || 'Lỗi gửi mail qua Resend';
+            }
+          } else {
+            emailErrorMsg = resendData.message;
+          }
         } else {
           console.warn('[RESEND OTP] Lỗi gửi mail qua Resend:', resendData);
           emailErrorMsg = resendData?.message || 'Lỗi gửi qua Resend API';
