@@ -612,8 +612,8 @@ async function sendResetOtp(req, res) {
       }
     }
 
-    // Cách 3: Gửi qua Gmail SMTP (Nodemailer)
-    if (!emailSent && transporter) {
+    // Cách 3: Gửi qua Gmail SMTP (Nodemailer) - Chỉ chạy nếu không dùng Resend/Brevo
+    if (!emailSent && !process.env.RESEND_API_KEY && !process.env.BREVO_API_KEY && transporter) {
       try {
         const sendPromise = transporter.sendMail(mailOptions);
         const timeoutPromise = new Promise((_, reject) =>
