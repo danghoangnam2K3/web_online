@@ -300,12 +300,14 @@ export default function CoursesTab({ initialSelectedCourseId }) {
       />
 
       {/* Modal Chỉnh Sửa / Chi Tiết Khóa Học */}
-      <CourseDetailModal
-        isOpen={isDetailModalOpen}
-        onClose={() => setIsDetailModalOpen(false)}
-        course={selectedCourse}
-        onUpdateCourse={() => loadCourses(true)}
-      />
+      {isDetailModalOpen && selectedCourse && (
+        <CourseDetailModal
+          isOpen={isDetailModalOpen}
+          onClose={() => setIsDetailModalOpen(false)}
+          course={selectedCourse}
+          onUpdateCourse={() => loadCourses(true)}
+        />
+      )}
 
       {/* Modal Đề Mô */}
       <CourseDemoModal

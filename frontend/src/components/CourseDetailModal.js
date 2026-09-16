@@ -204,6 +204,65 @@ export default function CourseDetailModal({ isOpen, onClose, course: initialCour
     );
   }, [course, allStudents, studentSearch]);
 
+  // Danh sách học viên chưa có khóa được lọc theo từ khóa tìm kiếm
+  const filteredUnassigned = React.useMemo(() => {
+    if (!unassignedSearch.trim()) return unassignedStudents;
+    const q = unassignedSearch.toLowerCase().trim();
+    return unassignedStudents.filter(s =>
+      (s.full_name && s.full_name.toLowerCase().includes(q)) ||
+      (s.cccd && s.cccd.toLowerCase().includes(q)) ||
+      (s.username && s.username.toLowerCase().includes(q)) ||
+      (s.phone && s.phone.toLowerCase().includes(q)) ||
+      (s.email && s.email.toLowerCase().includes(q))
+    );
+  }, [unassignedStudents, unassignedSearch]);
+
+  const isAllSelected = filteredUnassigned.length > 0 && filteredUnassigned.every(st => selectedStudentIds.includes(st.id));
+  const isSomeSelected = filteredUnassigned.some(st => selectedStudentIds.includes(st.id));
+
+  // Chọn / Bỏ chọn tất cả học viên trong danh sách đang hiển thị
+  const handleToggleSelectAll = () => {
+    if (isAllSelected) {
+      const currentFilteredIds = new Set(filteredUnassigned.map(s => s.id));
+      setSelectedStudentIds(prev => prev.filter(id => !currentFilteredIds.has(id)));
+    } else {
+      const newIds = new Set([...selectedStudentIds, ...filteredUnassigned.map(s => s.id)]);
+      setSelectedStudentIds(Array.from(newIds));
+    }
+  };
+
+  const handleClearSelection = () => {
+    setSelectedStudentIds([]);
+    setLastClickedIndex(null);
+  };
+
+  const toggleSelectStudent = (id) => {
+    setSelectedStudentIds(prev =>
+      prev.includes(id) ? prev.filter(s => s !== id) : [...prev, id]
+    );
+  };
+
+  // Chọn khoảng (Range select) khi giữ Shift
+  const handleStudentRowClick = (e, st, idx) => {
+    if (e.shiftKey && lastClickedIndex !== null && lastClickedIndex !== idx) {
+      const start = Math.min(lastClickedIndex, idx);
+      const end = Math.max(lastClickedIndex, idx);
+      const rangeSlice = filteredUnassigned.slice(start, end + 1);
+      const rangeIds = rangeSlice.map(s => s.id);
+
+      const isTargetChecked = selectedStudentIds.includes(st.id);
+      if (!isTargetChecked) {
+        setSelectedStudentIds(prev => Array.from(new Set([...prev, ...rangeIds])));
+      } else {
+        const removeSet = new Set(rangeIds);
+        setSelectedStudentIds(prev => prev.filter(id => !removeSet.has(id)));
+      }
+    } else {
+      toggleSelectStudent(st.id);
+    }
+    setLastClickedIndex(idx);
+  };
+
   // Helper tải lại chi tiết khóa học và thông báo tab cha cập nhật
   const reloadCurrentCourse = async () => {
     if (!course?.id) return;
@@ -219,8 +278,6 @@ export default function CourseDetailModal({ isOpen, onClose, course: initialCour
       onUpdateCourse();
     }
   };
-
-  if (!isOpen || !course) return null;
 
   // ── Lưu thông tin giới thiệu ─────────────────────────────────────────────────
   const handleSaveIntro = async (e) => {
@@ -558,64 +615,7 @@ export default function CourseDetailModal({ isOpen, onClose, course: initialCour
     }
   };
 
-  // Danh sách học viên chưa có khóa được lọc theo từ khóa tìm kiếm
-  const filteredUnassigned = React.useMemo(() => {
-    if (!unassignedSearch.trim()) return unassignedStudents;
-    const q = unassignedSearch.toLowerCase().trim();
-    return unassignedStudents.filter(s =>
-      (s.full_name && s.full_name.toLowerCase().includes(q)) ||
-      (s.cccd && s.cccd.toLowerCase().includes(q)) ||
-      (s.username && s.username.toLowerCase().includes(q)) ||
-      (s.phone && s.phone.toLowerCase().includes(q)) ||
-      (s.email && s.email.toLowerCase().includes(q))
-    );
-  }, [unassignedStudents, unassignedSearch]);
-
-  const isAllSelected = filteredUnassigned.length > 0 && filteredUnassigned.every(st => selectedStudentIds.includes(st.id));
-  const isSomeSelected = filteredUnassigned.some(st => selectedStudentIds.includes(st.id));
-
-  // Chọn / Bỏ chọn tất cả học viên trong danh sách đang hiển thị
-  const handleToggleSelectAll = () => {
-    if (isAllSelected) {
-      const currentFilteredIds = new Set(filteredUnassigned.map(s => s.id));
-      setSelectedStudentIds(prev => prev.filter(id => !currentFilteredIds.has(id)));
-    } else {
-      const newIds = new Set([...selectedStudentIds, ...filteredUnassigned.map(s => s.id)]);
-      setSelectedStudentIds(Array.from(newIds));
-    }
-  };
-
-  const handleClearSelection = () => {
-    setSelectedStudentIds([]);
-    setLastClickedIndex(null);
-  };
-
-  const toggleSelectStudent = (id) => {
-    setSelectedStudentIds(prev =>
-      prev.includes(id) ? prev.filter(s => s !== id) : [...prev, id]
-    );
-  };
-
-  // Chọn khoảng (Range select) khi giữ Shift
-  const handleStudentRowClick = (e, st, idx) => {
-    if (e.shiftKey && lastClickedIndex !== null && lastClickedIndex !== idx) {
-      const start = Math.min(lastClickedIndex, idx);
-      const end = Math.max(lastClickedIndex, idx);
-      const rangeSlice = filteredUnassigned.slice(start, end + 1);
-      const rangeIds = rangeSlice.map(s => s.id);
-
-      const isTargetChecked = selectedStudentIds.includes(st.id);
-      if (!isTargetChecked) {
-        setSelectedStudentIds(prev => Array.from(new Set([...prev, ...rangeIds])));
-      } else {
-        const removeSet = new Set(rangeIds);
-        setSelectedStudentIds(prev => prev.filter(id => !removeSet.has(id)));
-      }
-    } else {
-      toggleSelectStudent(st.id);
-    }
-    setLastClickedIndex(idx);
-  };
+  if (!isOpen || !course) return null;
 
   const totalLessons = (course.chapters || []).reduce(
     (sum, ch) => sum + (ch.lessons?.length || 0), 0
