@@ -73,11 +73,22 @@ export default function ReportsTab() {
   // Khóa học tương ứng với học viên đang được chọn
   const currentStudentCourse = useMemo(() => {
     if (!currentStudent) return courses[0] || null;
-    return courses.find(c => 
-      c.name === currentStudent.course_name || 
-      (currentStudent.course_name && c.code && currentStudent.course_name.includes(c.code)) ||
-      (currentStudent.course_name && c.license_tier && currentStudent.course_name.includes(c.license_tier))
-    ) || courses[0] || null;
+    const cName = (currentStudent.course_name || '').trim().toLowerCase();
+    return courses.find(c => {
+      const name = (c.name || '').trim().toLowerCase();
+      const code = (c.code || '').trim().toLowerCase();
+      const tier = (c.license_tier || '').trim().toLowerCase();
+      return (
+        c.id === currentStudent.course_id ||
+        (code && code === cName) ||
+        (name && name === cName) ||
+        (code && cName.includes(code)) ||
+        (name && cName.includes(name)) ||
+        (cName && code.includes(cName)) ||
+        (cName && name.includes(cName)) ||
+        (tier && cName.includes(tier))
+      );
+    }) || courses[0] || null;
   }, [courses, currentStudent]);
 
   // Xử lý xuất file Excel (.xls) thật cho khóa học (mở trực tiếp trên Microsoft Excel)

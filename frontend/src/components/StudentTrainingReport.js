@@ -1,17 +1,18 @@
 'use client';
 
-import React, { useState } from 'react';
-import { Printer, Download, FileText, CheckCircle2, UserCheck, Calendar, Building2, Award, Hash, Image as ImageIcon } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Printer, Download, FileText, CheckCircle2, UserCheck, Calendar, Building2, Award, Hash, Image as ImageIcon, BookOpen } from 'lucide-react';
+import { fetchCourseById } from '../lib/api';
 
-// Dữ liệu thời lượng đào tạo chuẩn theo quy định Thông tư Bộ GTVT
+// Dữ liệu thời lượng đào tạo chuẩn dự phòng nếu khóa học chưa tạo chương bài học
 export const DEFAULT_TRAINING_MODULES = [
-  { id: 1, title: 'Pháp luật giao thông đường bộ', defaultDuration: '90 giờ' },
-  { id: 2, title: 'Cấu tạo và sửa chữa thông thường', defaultDuration: '18 giờ' },
-  { id: 3, title: 'Nghiệp vụ vận tải', defaultDuration: '14 giờ' },
-  { id: 4, title: 'Đạo đức người lái xe và văn hóa giao thông', defaultDuration: '20 giờ' },
-  { id: 5, title: 'Kỹ thuật lái xe', defaultDuration: '20 giờ' },
-  { id: 6, title: 'Học phần mềm mô phỏng các tình huống giao thông', defaultDuration: '04 giờ' },
-  { id: 7, title: 'Thực hành lái xe', defaultDuration: '84 giờ' },
+  { id: 1, title: 'Chương 1: Pháp luật giao thông đường bộ', defaultDuration: '90 giờ' },
+  { id: 2, title: 'Chương 2: Cấu tạo và sửa chữa thông thường', defaultDuration: '18 giờ' },
+  { id: 3, title: 'Chương 3: Nghiệp vụ vận tải', defaultDuration: '14 giờ' },
+  { id: 4, title: 'Chương 4: Đạo đức người lái xe và văn hóa giao thông', defaultDuration: '20 giờ' },
+  { id: 5, title: 'Chương 5: Kỹ thuật lái xe ô tô', defaultDuration: '20 giờ' },
+  { id: 6, title: 'Chương 6: Học phần mềm mô phỏng các tình huống giao thông', defaultDuration: '04 giờ' },
+  { id: 7, title: 'Chương 7: Thực hành lái xe (Cabin tập lái & Đường trường)', defaultDuration: '84 giờ' },
 ];
 
 export default function StudentTrainingReport({
@@ -38,6 +39,77 @@ export default function StudentTrainingReport({
   const [modules, setModules] = useState(DEFAULT_TRAINING_MODULES);
   const [customTotalHours, setCustomTotalHours] = useState('250 giờ');
   const [isEditingHours, setIsEditingHours] = useState(false);
+  const [fullCourseData, setFullCourseData] = useState(course || null);
+
+  // Tải chi tiết chapters từ CSDL Supabase nếu chưa có sẵn
+  useEffect(() => {
+    if (course?.id && (!course.chapters || course.chapters.length === 0)) {
+      fetchCourseById(course.id)
+        .then(data => {
+          if (data) setFullCourseData(data);
+        })
+        .catch(err => console.warn('Không thể tải chi tiết chương:', err));
+    } else {
+      setFullCourseData(course);
+    }
+  }, [course]);
+
+  // Cập nhật các hàng nội dung đào tạo từ danh sách chương (chapters) thực tế của khóa học
+  useEffect(() => {
+    const chapters = fullCourseData?.chapters;
+    if (Array.isArray(chapters) && chapters.length > 0) {
+      // Sắp xếp các chương theo thứ tự order_index
+      const sorted = [...chapters].sort((a, b) => (a.order_index || 0) - (b.order_index || 0));
+      
+      let totalMinutes = 0;
+      const chapterRows = sorted.map((ch, idx) => {
+        const lessons = ch.lessons || [];
+        const chMins = lessons.reduce((sum, l) => sum + (Number(l.duration_minutes) || 0), 0);
+
+        let durationDisplay = '';
+        if (chMins > 0) {
+          totalMinutes += chMins;
+          if (chMins >= 60) {
+            const hrs = Math.round((chMins / 60) * 10) / 10;
+            durationDisplay = `${hrs} giờ`;
+          } else {
+            durationDisplay = `${chMins} phút`;
+          }
+        } else {
+          // Nếu bài học chưa gán số phút, phân bổ số giờ theo chuẩn
+          const defaultHoursList = [90, 18, 14, 20, 20, 4, 84];
+          const defaultH = defaultHoursList[idx] || (Math.max(10, 30 - idx * 3));
+          totalMinutes += defaultH * 60;
+          durationDisplay = `${defaultH} giờ`;
+        }
+
+        const rawTitle = (ch.title || '').trim();
+        const displayTitle = rawTitle.toLowerCase().startsWith('chương')
+          ? rawTitle
+          : `Chương ${idx + 1}: ${rawTitle}`;
+
+        return {
+          id: idx + 1,
+          title: displayTitle,
+          defaultDuration: durationDisplay
+        };
+      });
+
+      setModules(chapterRows);
+
+      // Cập nhật tổng số thời gian đào tạo
+      if (fullCourseData?.total_hours) {
+        setCustomTotalHours(`${fullCourseData.total_hours} giờ`);
+      } else {
+        const totalHrs = Math.round((totalMinutes / 60) * 10) / 10;
+        setCustomTotalHours(totalHrs > 0 ? `${totalHrs} giờ` : '250 giờ');
+      }
+    } else {
+      // Dùng danh sách chương mẫu nếu khóa học chưa được tạo chương
+      setModules(DEFAULT_TRAINING_MODULES);
+      setCustomTotalHours(fullCourseData?.total_hours ? `${fullCourseData.total_hours} giờ` : '250 giờ');
+    }
+  }, [fullCourseData]);
 
   // Format ngày sinh
   const formatDob = (dobStr) => {
