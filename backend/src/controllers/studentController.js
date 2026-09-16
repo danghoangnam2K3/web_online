@@ -1,4 +1,5 @@
 const supabase = require('../config/supabase');
+const bcrypt = require('bcryptjs');
 
 // Helper: kiểm tra kết nối Supabase
 function checkSupabase() {
@@ -28,7 +29,13 @@ exports.getAllStudents = async (req, res) => {
     const { data, error } = await query;
     if (error) throw new Error(error.message);
 
-    return res.json({ success: true, data: data || [] });
+    // Không trả về chuỗi hash mật khẩu ra client để bảo mật
+    const sanitized = (data || []).map(s => {
+      const { password, ...rest } = s;
+      return rest;
+    });
+
+    return res.json({ success: true, data: sanitized });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
   }
@@ -50,7 +57,9 @@ exports.getStudentById = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Học viên không tồn tại' });
     }
 
-    return res.json({ success: true, data });
+    // Bảo mật: loại bỏ password khỏi phản hồi
+    const { password, ...rest } = data;
+    return res.json({ success: true, data: rest });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
   }
@@ -83,9 +92,14 @@ exports.createStudent = async (req, res) => {
       });
     }
 
+    // Băm mật khẩu bằng Bcrypt trước khi lưu vào CSDL (mặc định 123456 nếu để trống)
+    const rawPassword = (password || '123456').toString().trim();
+    const hashedPassword = await bcrypt.hash(rawPassword, 10);
+
     const newStudent = {
       full_name,
       username,
+      password: hashedPassword,
       dob: dob || null,
       cccd,
       email: email || null,
@@ -104,6 +118,9 @@ exports.createStudent = async (req, res) => {
       .single();
 
     if (error) throw new Error(error.message);
+
+    // Không gửi mật khẩu hash về client
+    if (data && data.password) delete data.password;
 
     return res.status(201).json({
       success: true,
@@ -212,10 +229,22 @@ exports.createStudentsBatch = async (req, res) => {
       });
     }
 
-    // 2. Chèn toàn bộ học viên hợp lệ vào bảng students
+    // 2. Mã hóa mật khẩu Bcrypt cho toàn bộ học viên trước khi lưu
+    const toInsertWithHashedPasswords = await Promise.all(
+      toInsert.map(async (row) => {
+        const raw = (row.password || '123456').toString().trim();
+        const hashedPassword = await bcrypt.hash(raw, 10);
+        return {
+          ...row,
+          password: hashedPassword
+        };
+      })
+    );
+
+    // Chèn toàn bộ học viên hợp lệ vào bảng students
     const { data: insertedData, error: insertError } = await supabase
       .from('students')
-      .insert(toInsert)
+      .insert(toInsertWithHashedPasswords)
       .select();
 
     if (insertError) {
@@ -224,15 +253,17 @@ exports.createStudentsBatch = async (req, res) => {
 
     return res.status(201).json({
       success: true,
-      message: `Tạo thành công ${insertedData.length} tài khoản học viên!${skipped.length > 0 ? ` (Bỏ qua ${skipped.length} dòng trùng/lỗi)` : ''}`,
+      message: `Đã tạo thành công ${insertedData.length} tài khoản học viên!`,
       createdCount: insertedData.length,
       skippedCount: skipped.length,
-      skipped,
-      data: insertedData
+      skipped
     });
   } catch (err) {
-    console.error('Lỗi createStudentsBatch:', err);
-    return res.status(500).json({ success: false, message: err.message });
+    console.error('Lỗi tạo học viên hàng loạt:', err.message);
+    return res.status(500).json({
+      success: false,
+      message: err.message || 'Lỗi server khi tạo học viên hàng loạt'
+    });
   }
 };
 
@@ -254,7 +285,13 @@ exports.updateStudent = async (req, res) => {
     if (body.avatar_url !== undefined)  baseUpdate.avatar_url = body.avatar_url || null;
     if (body.course_name !== undefined) baseUpdate.course_name = body.course_name;
     if (body.progress !== undefined)    baseUpdate.progress   = parseInt(body.progress) || 0;
-    if (body.password !== undefined && String(body.password).trim() !== '') baseUpdate.password = String(body.password).trim();
+    
+    // Nếu có cập nhật mật khẩu, tự động băm Bcrypt
+    if (body.password !== undefined && String(body.password).trim() !== '') {
+      const raw = String(body.password).trim();
+      const isBcrypt = /^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$/.test(raw);
+      baseUpdate.password = isBcrypt ? raw : await bcrypt.hash(raw, 10);
+    }
 
     // Thử cập nhật đầy đủ các trường (bao gồm gender, workplace, address, bio, password nếu bảng đã có)
     const fullUpdate = { ...baseUpdate };
@@ -288,6 +325,9 @@ exports.updateStudent = async (req, res) => {
     }
 
     if (!data) return res.status(404).json({ success: false, message: 'Không tìm thấy học viên' });
+
+    // Bảo mật: Không trả về mật khẩu hash
+    if (data && data.password) delete data.password;
 
     return res.json({
       success: true,

@@ -1,4 +1,5 @@
 const { createClient } = require('@supabase/supabase-js');
+const bcrypt = require('bcryptjs');
 require('dotenv').config();
 
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -13,6 +14,46 @@ function checkSupabaseEnv(res) {
     return false;
   }
   return true;
+}
+
+// Helper kiểm tra và tự động nâng cấp mật khẩu sang hash Bcrypt nếu còn ở dạng plain-text
+async function verifyAndUpgradePassword(plainPassword, storedPassword, studentId, supabase) {
+  if (!storedPassword) {
+    // Tài khoản chưa có mật khẩu -> băm mật khẩu vừa nhập và lưu lại
+    try {
+      const hash = await bcrypt.hash(plainPassword, 10);
+      await supabase.from('students').update({ password: hash }).eq('id', studentId);
+    } catch (e) {
+      console.error('Lỗi lưu mật khẩu ban đầu:', e.message);
+    }
+    return true;
+  }
+
+  // Kiểm tra nếu là chuỗi Bcrypt hash ($2a$, $2b$, $2y$)
+  const isBcrypt = /^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$/.test(storedPassword);
+  if (isBcrypt) {
+    try {
+      return await bcrypt.compare(plainPassword, storedPassword);
+    } catch (err) {
+      console.error('Lỗi so sánh bcrypt:', err.message);
+      return false;
+    }
+  }
+
+  // Nếu là mật khẩu cũ (plain-text)
+  if (storedPassword === plainPassword) {
+    // Tự động nâng cấp sang Bcrypt hash an toàn
+    try {
+      const hash = await bcrypt.hash(plainPassword, 10);
+      await supabase.from('students').update({ password: hash }).eq('id', studentId);
+      console.log(`[AUTH] Đã tự động nâng cấp mật khẩu sang Bcrypt cho học viên ID: ${studentId}`);
+    } catch (e) {
+      console.error('Lỗi tự động nâng cấp mật khẩu sang Bcrypt:', e.message);
+    }
+    return true;
+  }
+
+  return false;
 }
 
 // ─── Đăng nhập bằng Tên đăng nhập hoặc Email ──────────────────────────────────
@@ -52,38 +93,10 @@ async function login(req, res) {
     console.error('Lỗi tìm kiếm học viên trong Supabase:', e.message);
   }
 
-  // Nếu tìm thấy học viên trong Supabase
+  // Nếu tìm thấy học viên trong Supabase -> kiểm tra mật khẩu (hỗ trợ cả Bcrypt hash lẫn plain-text cũ)
   if (student) {
-    // Trường hợp 1: Có password và trùng khớp
-    if (student.password && student.password === password) {
-      return res.json({
-        success: true,
-        message: 'Đăng nhập thành công từ Supabase!',
-        data: {
-          user: {
-            id: student.id,
-            username: student.username,
-            email: student.email,
-            full_name: student.full_name,
-            role: student.role || 'student',
-            avatar_url: student.avatar_url,
-            cccd: student.cccd,
-            course_name: student.course_name,
-            progress: student.progress,
-          },
-          token: `supabase-token-${student.id}`,
-        }
-      });
-    }
-
-    // Trường hợp 2: Nếu tài khoản học viên trong Supabase chưa có mật khẩu (null/rỗng)
-    if (!student.password) {
-      try {
-        await supabase.from('students').update({ password }).eq('id', student.id);
-        student.password = password;
-      } catch (err) {
-        console.error('Lỗi cập nhật mật khẩu mặc định:', err.message);
-      }
+    const isMatch = await verifyAndUpgradePassword(password, student.password, student.id, supabase);
+    if (isMatch) {
       return res.json({
         success: true,
         message: 'Đăng nhập thành công từ Supabase!',
@@ -105,13 +118,14 @@ async function login(req, res) {
     }
   }
 
-  // Trường hợp 3: Nếu đăng nhập bằng admin / Admin@123 mà chưa tạo dòng admin trong bảng students
+  // Trường hợp dự phòng: Nếu đăng nhập bằng admin / Admin@123 mà chưa tạo dòng admin trong bảng students
   if ((identity.toLowerCase() === 'admin' || identity.toLowerCase() === 'admin@driveedu.vn') && password === 'Admin@123') {
+    const hashedAdminPassword = await bcrypt.hash('Admin@123', 10);
     const adminUser = {
       username: 'admin',
       email: 'admin@driveedu.vn',
       full_name: 'Quản Trị Viên Hệ Thống',
-      password: 'Admin@123',
+      password: hashedAdminPassword,
       role: 'admin',
       status: 'active',
       cccd: '001099123456',
@@ -186,12 +200,13 @@ async function register(req, res) {
     console.error('Supabase auth signup warning:', e.message);
   }
 
-  // Tự động tạo bản ghi trong bảng students trên Supabase
+  // Tự động tạo bản ghi trong bảng students trên Supabase với mật khẩu đã băm Bcrypt
+  const hashedPassword = await bcrypt.hash(password, 10);
   const newStudent = {
     full_name,
     username: username || email.split('@')[0],
     email,
-    password, // Lưu mật khẩu để đăng nhập trực tiếp
+    password: hashedPassword, // Lưu mật khẩu đã mã hóa Bcrypt
     cccd: 'CCCD-' + Math.floor(Math.random() * 1000000000),
     role: 'student',
     status: 'active'
@@ -243,10 +258,13 @@ async function changePassword(req, res) {
 
   const supabase = createClient(supabaseUrl, supabaseKey);
 
-  // Bước 1: Cập nhật cột password trong bảng students (đăng nhập dùng plain-text so sánh trực tiếp)
+  // Mã hóa mật khẩu mới bằng Bcrypt
+  const hashedNewPassword = await bcrypt.hash(new_password, 10);
+
+  // Bước 1: Cập nhật cột password trong bảng students với chuỗi mã hóa Bcrypt
   const { data: updatedStudent, error: dbError } = await supabase
     .from('students')
-    .update({ password: new_password, updated_at: new Date().toISOString() })
+    .update({ password: hashedNewPassword, updated_at: new Date().toISOString() })
     .eq('id', user_id)
     .select()
     .single();
