@@ -3,10 +3,11 @@
 import React, { useState, useEffect } from 'react';
 import { fetchStudents, createStudentApi, deleteStudentApi } from '../lib/api';
 import { useAuth } from '../lib/AuthContext';
-import { Users, UserPlus, Search, Shield, Eye, CreditCard, Calendar, Filter, CheckCircle2, Lock, Edit3, Trash2, FileText } from 'lucide-react';
+import { Users, UserPlus, Search, Shield, Eye, CreditCard, Calendar, Filter, CheckCircle2, Lock, Edit3, Trash2, FileText, FileSpreadsheet } from 'lucide-react';
 import CreateStudentModal from './CreateStudentModal';
 import StudentDetailModal from './StudentDetailModal';
 import StudentReportModal from './StudentReportModal';
+import ImportStudentsModal from './ImportStudentsModal';
 
 export default function StudentsTab() {
   const { user } = useAuth();
@@ -21,6 +22,7 @@ export default function StudentsTab() {
 
   // Modals
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [reportStudent, setReportStudent] = useState(null);
@@ -93,14 +95,24 @@ export default function StudentsTab() {
           </p>
         </div>
 
-        {/* Nút Tạo Tài Khoản chỉ dành cho Admin */}
+        {/* Nút Tạo Tài Khoản & Nhập Excel chỉ dành cho Admin */}
         {isAdmin ? (
-          <button
-            onClick={() => setIsCreateModalOpen(true)}
-            className="px-5 py-2.5 rounded-xl font-bold text-sm text-white gradient-blue-bg hover:opacity-95 shadow-md shadow-blue-500/20 flex items-center justify-center transition-all scale-[1.01] hover:scale-[1.03]"
-          >
-            <UserPlus className="w-5 h-5 mr-2" /> Tạo Tài Khoản Mới
-          </button>
+          <div className="flex flex-wrap items-center gap-2.5">
+            <button
+              onClick={() => setIsImportModalOpen(true)}
+              className="px-4 py-2.5 rounded-xl font-bold text-sm text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 shadow-sm flex items-center justify-center transition-all scale-[1.01] hover:scale-[1.03]"
+              title="Nhập danh sách học viên hàng loạt từ file Excel"
+            >
+              <FileSpreadsheet className="w-5 h-5 mr-2 text-emerald-600" /> Nhập Từ Excel
+            </button>
+
+            <button
+              onClick={() => setIsCreateModalOpen(true)}
+              className="px-5 py-2.5 rounded-xl font-bold text-sm text-white gradient-blue-bg hover:opacity-95 shadow-md shadow-blue-500/20 flex items-center justify-center transition-all scale-[1.01] hover:scale-[1.03]"
+            >
+              <UserPlus className="w-5 h-5 mr-2" /> Tạo Tài Khoản Mới
+            </button>
+          </div>
         ) : (
           <div className="px-4 py-2 bg-blue-50 border border-blue-200 text-blue-800 rounded-xl text-xs font-bold flex items-center gap-2">
             <Eye className="w-4 h-4 text-blue-600" />
@@ -310,6 +322,13 @@ export default function StudentsTab() {
         isOpen={isCreateModalOpen}
         onClose={() => setIsCreateModalOpen(false)}
         onCreateStudent={handleCreateStudent}
+      />
+
+      {/* Modal Nhập Học Viên Hàng Loạt Từ Excel */}
+      <ImportStudentsModal
+        isOpen={isImportModalOpen}
+        onClose={() => setIsImportModalOpen(false)}
+        onSuccess={loadStudents}
       />
 
       {/* Modal Cửa Sổ Nhỏ Chỉnh Sửa Thông Tin Học Viên (Tương tự trang Account) */}

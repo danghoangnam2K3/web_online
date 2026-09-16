@@ -115,6 +115,127 @@ exports.createStudent = async (req, res) => {
   }
 };
 
+// ─── Tạo danh sách học viên hàng loạt (Nhập từ file Excel) ────────────────────
+exports.createStudentsBatch = async (req, res) => {
+  try {
+    checkSupabase();
+    const { students } = req.body;
+
+    if (!Array.isArray(students) || students.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Danh sách học viên không hợp lệ hoặc đang trống!'
+      });
+    }
+
+    // 1. Lấy danh sách username & cccd hiện có trong hệ thống để đối soát trùng
+    const { data: existingRecords } = await supabase
+      .from('students')
+      .select('username, cccd');
+
+    const existingUsernames = new Set((existingRecords || []).map(r => (r.username || '').toLowerCase()));
+    const existingCccds = new Set((existingRecords || []).map(r => (r.cccd || '').trim()));
+
+    const toInsert = [];
+    const skipped = [];
+    const seenBatchUsernames = new Set();
+    const seenBatchCccds = new Set();
+
+    students.forEach((st, idx) => {
+      const full_name = (st.full_name || '').trim();
+      let cccd = (st.cccd || '').toString().trim();
+      let username = (st.username || '').toString().trim().toLowerCase();
+      const password = (st.password || '123456').toString().trim();
+
+      // Kiểm tra họ tên
+      if (!full_name) {
+        skipped.push({ row: idx + 1, name: full_name || 'Chưa rõ', reason: 'Thiếu họ và tên' });
+        return;
+      }
+
+      // Kiểm tra CCCD
+      if (!cccd) {
+        skipped.push({ row: idx + 1, name: full_name, reason: 'Thiếu số CCCD' });
+        return;
+      }
+
+      // Tự sinh username nếu để trống
+      if (!username) {
+        username = `hv${cccd}`;
+      }
+
+      // Kiểm tra trùng lặp với CSDL Supabase
+      if (existingUsernames.has(username)) {
+        skipped.push({ row: idx + 1, name: full_name, username, cccd, reason: `Tên đăng nhập "${username}" đã tồn tại` });
+        return;
+      }
+      if (existingCccds.has(cccd)) {
+        skipped.push({ row: idx + 1, name: full_name, username, cccd, reason: `Số CCCD "${cccd}" đã tồn tại` });
+        return;
+      }
+
+      // Kiểm tra trùng lặp nội bộ trong chính file Excel tải lên
+      if (seenBatchUsernames.has(username)) {
+        skipped.push({ row: idx + 1, name: full_name, username, cccd, reason: `Tên đăng nhập "${username}" bị trùng trong file` });
+        return;
+      }
+      if (seenBatchCccds.has(cccd)) {
+        skipped.push({ row: idx + 1, name: full_name, username, cccd, reason: `Số CCCD "${cccd}" bị trùng trong file` });
+        return;
+      }
+
+      seenBatchUsernames.add(username);
+      seenBatchCccds.add(cccd);
+
+      toInsert.push({
+        full_name,
+        username,
+        password,
+        dob: st.dob ? String(st.dob).trim() : null,
+        cccd,
+        email: st.email ? String(st.email).trim() : null,
+        phone: st.phone ? String(st.phone).trim() : null,
+        role: 'student',
+        status: 'active',
+        course_name: st.course_name ? String(st.course_name).trim() : 'Chưa xếp khóa',
+        progress: 0,
+        avatar_url: st.avatar_url || null
+      });
+    });
+
+    if (toInsert.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Không có học viên nào hợp lệ để nhập vào hệ thống!',
+        skippedCount: skipped.length,
+        skipped
+      });
+    }
+
+    // 2. Chèn toàn bộ học viên hợp lệ vào bảng students
+    const { data: insertedData, error: insertError } = await supabase
+      .from('students')
+      .insert(toInsert)
+      .select();
+
+    if (insertError) {
+      throw new Error(insertError.message);
+    }
+
+    return res.status(201).json({
+      success: true,
+      message: `Tạo thành công ${insertedData.length} tài khoản học viên!${skipped.length > 0 ? ` (Bỏ qua ${skipped.length} dòng trùng/lỗi)` : ''}`,
+      createdCount: insertedData.length,
+      skippedCount: skipped.length,
+      skipped,
+      data: insertedData
+    });
+  } catch (err) {
+    console.error('Lỗi createStudentsBatch:', err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
 // ─── Cập nhật thông tin học viên ──────────────────────────────────────────────
 exports.updateStudent = async (req, res) => {
   try {

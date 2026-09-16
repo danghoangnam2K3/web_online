@@ -11,6 +11,7 @@ router.post('/upload-avatar', studentController.uploadAvatar);
 
 // Tạo tài khoản (Học viên / Admin)
 router.post('/', studentController.createStudent);
+router.post('/batch', studentController.createStudentsBatch);
 
 // Giám sát & chỉnh sửa thông tin học viên
 router.put('/:id', studentController.updateStudent);

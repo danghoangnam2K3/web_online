@@ -481,6 +481,13 @@ export async function createStudentApi(studentData) {
   });
 }
 
+export async function createStudentsBatchApi(studentsList) {
+  return apiFetch('/students/batch', {
+    method: 'POST',
+    body: JSON.stringify({ students: studentsList })
+  });
+}
+
 export async function updateStudentApi(studentId, updateData) {
   // Gọi thẳng fetch thay vì apiFetch để lấy toàn bộ response (success + message + data)
   const res = await fetch(`${BASE_URL}/students/${studentId}`, {
