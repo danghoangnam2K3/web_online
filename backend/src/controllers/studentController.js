@@ -644,13 +644,16 @@ exports.getStudyProgress = async (req, res) => {
 
     let progressList = [];
     try {
+      // BUG FIX: Join đầy đủ lessons(id, chapter_id, title) để frontend map được chapter
       const { data, error } = await supabase
         .from('study_progress')
-        .select('*, lessons(id, chapter_id, title)')
-        .eq('student_id', resolvedStudentId);
+        .select('id, lesson_id, watched_seconds, is_completed, last_studied_at, lessons(id, chapter_id, title)')
+        .eq('student_id', resolvedStudentId)
+        .order('last_studied_at', { ascending: false });
       if (!error && data) {
         progressList = data;
       } else {
+        // Fallback: không join, chỉ lấy raw data
         const fallback = await supabase
           .from('study_progress')
           .select('*')
@@ -660,6 +663,7 @@ exports.getStudyProgress = async (req, res) => {
     } catch (e) {
       console.warn('Không thể truy vấn study_progress:', e.message);
     }
+
 
     return res.json({
       success: true,

@@ -132,6 +132,9 @@ export default function StudentTrainingReport({
 
   // 3. Hiển thị tất cả các chương bài học của khóa học cùng thời lượng thực tế từ CSDL Supabase (từng giờ, phút, giây)
   useEffect(() => {
+    // BUG FIX: Không render nếu dữ liệu chưa load xong (tránh flash "0 phút")
+    if (loadingDb) return;
+
     const chapters = fullCourseData?.chapters || [];
     const studentPct = Number(student?.progress) || 0;
     const sortedChapters = [...chapters].sort((a, b) => (a.order_index || 0) - (b.order_index || 0));
@@ -149,50 +152,69 @@ export default function StudentTrainingReport({
       } catch (e) {}
     }
 
+    // BUG FIX: Build lookup map từ lesson_id thật → chapter để match chính xác
+    // Tránh dùng toUuid() hash fake vì backend lưu UUID thật từ bảng lessons
+    const lessonIdToChapterId = {};
+    sortedChapters.forEach(ch => {
+      (ch.lessons || []).forEach(l => {
+        if (l.id) lessonIdToChapterId[l.id] = ch.id;
+      });
+    });
+
+    // BUG FIX: Gom tất cả study_progress records theo chapter_id thực
+    // Mỗi record trong DB có lesson_id = UUID thật → tra ngược ra chapter
+    const chapterSecMap = {}; // { chapterId: totalSeconds }
+    const chapterCompMap = {}; // { chapterId: isCompleted }
+    const lessonStudiedSet = new Set(); // lesson_id đã học
+
+    (studentProgressList || []).forEach(r => {
+      if (!r) return;
+      const watched = Number(r.watched_seconds) || 0;
+      const isComp = !!r.is_completed;
+      const rLessonId = r.lesson_id;
+
+      // Cách 1: Dùng r.lessons?.chapter_id (join từ backend)
+      let chId = r.lessons?.chapter_id || null;
+
+      // Cách 2+: Tra từ lesson lookup map (chính xác và không cần join)
+      if (!chId && rLessonId && lessonIdToChapterId[rLessonId]) {
+        chId = lessonIdToChapterId[rLessonId];
+      }
+
+      // Cách 3: Nếu r.lesson_id trùng với ch.id (trường hợp chapter_id bị lưu nhầm vào lesson_id)
+      if (!chId && rLessonId) {
+        const directCh = sortedChapters.find(c => c.id === rLessonId);
+        if (directCh) chId = directCh.id;
+      }
+
+      if (chId) {
+        chapterSecMap[chId] = (chapterSecMap[chId] || 0) + watched;
+        if (isComp) chapterCompMap[chId] = true;
+        if (watched > 0 && rLessonId) lessonStudiedSet.add(rLessonId);
+      }
+    });
+
     const studiedRows = [];
     let totalSec = 0;
 
     sortedChapters.forEach((ch, chIdx) => {
       const lessons = [...(ch.lessons || [])].sort((a, b) => (a.order_index || 0) - (b.order_index || 0));
-      let chapterStudiedSec = 0;
-      const studiedLessonNames = [];
 
-      // 1. Tính tổng số giây học từ CSDL Supabase (bảng study_progress)
-      const chUuid = toUuid(ch.id);
-      const lessonUuids = lessons.map(l => ({ rawId: l.id, uuid: toUuid(l.id) }));
+      // Giây từ DB
+      let chapterStudiedSec = chapterSecMap[ch.id] || 0;
 
-      (studentProgressList || []).forEach(r => {
-        if (!r) return;
-        const rLessonId = r.lesson_id;
-        const rChapterId = r.lessons?.chapter_id || r.chapter_id;
-
-        const isMatchChapter = (
-          (rChapterId && (rChapterId === ch.id || rChapterId === chUuid)) ||
-          (rLessonId && (rLessonId === ch.id || rLessonId === chUuid)) ||
-          lessonUuids.some(lu => lu.rawId === rLessonId || lu.uuid === rLessonId)
-        );
-
-        if (isMatchChapter) {
-          chapterStudiedSec += Number(r.watched_seconds) || 0;
-        }
-      });
-
-      // 2. So sánh với số giây lưu trong LocalStorage (lấy giá trị lớn nhất)
-      const localSec = Number(localChapterProgress[ch.id]?.studiedSeconds || localChapterProgress[chUuid]?.studiedSeconds || 0);
+      // BUG FIX: Lấy max giữa DB và localStorage (không bỏ sót giờ)
+      const localSec = Number(
+        localChapterProgress[ch.id]?.studiedSeconds ||
+        localChapterProgress[toUuid(ch.id)]?.studiedSeconds ||
+        0
+      );
       chapterStudiedSec = Math.max(chapterStudiedSec, localSec);
 
       // Thống kê các bài học đã học trong chương
-      if (lessons.length > 0) {
-        lessons.forEach((l, lIdx) => {
-          const lUuid = toUuid(l.id);
-          const hasRec = (studentProgressList || []).some(r =>
-            r && (r.lesson_id === l.id || r.lesson_id === lUuid) && Number(r.watched_seconds) > 0
-          );
-          if (hasRec) {
-            studiedLessonNames.push(l.title ? l.title.trim() : `Bài ${lIdx + 1}`);
-          }
-        });
-      }
+      const studiedLessonNames = lessons
+        .filter(l => lessonStudiedSet.has(l.id))
+        .map((l, lIdx) => l.title?.trim() || `Bài ${lIdx + 1}`);
 
       totalSec += chapterStudiedSec;
 
@@ -234,7 +256,8 @@ export default function StudentTrainingReport({
       setCustomTotalHours('0 phút 00 giây');
       setConclusion(studentPct >= 80 ? 'Đáp ứng' : `Chưa đáp ứng (Tiến độ: ${studentPct}%)`);
     }
-  }, [fullCourseData, student, studentProgressList]);
+  }, [fullCourseData, student, studentProgressList, loadingDb]);
+
 
   // Format ngày sinh
   const formatDob = (dobStr) => {
@@ -634,7 +657,13 @@ export default function StudentTrainingReport({
       )}
 
       {/* KHUNG HIỂN THỊ BIỂU MẪU A4 TIÊU CHUẨN */}
-      <div className="flex justify-center bg-slate-100/70 p-2 sm:p-6 rounded-2xl border border-slate-200/80 overflow-x-auto">
+      {loadingDb && (
+        <div className="flex items-center justify-center py-10 gap-3 text-slate-500">
+          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600" />
+          <span className="text-sm font-medium">Đang tải dữ liệu thời gian học từ hệ thống...</span>
+        </div>
+      )}
+      <div className={`flex justify-center bg-slate-100/70 p-2 sm:p-6 rounded-2xl border border-slate-200/80 overflow-x-auto ${loadingDb ? 'opacity-30 pointer-events-none' : ''}`}>
         <div
           id="printable-student-report"
           className="w-full max-w-[794px] bg-white text-black p-8 sm:p-12 shadow-2xl rounded-sm border border-slate-300 print:border-none print:shadow-none print:p-0 print:m-0"
