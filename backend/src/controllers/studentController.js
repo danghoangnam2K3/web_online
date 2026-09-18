@@ -644,11 +644,19 @@ exports.getStudyProgress = async (req, res) => {
 
     let progressList = [];
     try {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('study_progress')
-        .select('*')
+        .select('*, lessons(id, chapter_id, title)')
         .eq('student_id', resolvedStudentId);
-      if (data) progressList = data;
+      if (!error && data) {
+        progressList = data;
+      } else {
+        const fallback = await supabase
+          .from('study_progress')
+          .select('*')
+          .eq('student_id', resolvedStudentId);
+        if (fallback.data) progressList = fallback.data;
+      }
     } catch (e) {
       console.warn('Không thể truy vấn study_progress:', e.message);
     }

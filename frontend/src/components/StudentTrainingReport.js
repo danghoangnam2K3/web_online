@@ -14,17 +14,24 @@ function formatExactTime(totalSec) {
   return `${mins} phút ${padSec} giây`;
 }
 
-function toUuidHelper(id) {
-  if (!id) return null;
-  const str = String(id).trim();
-  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str)) return str;
+function isUuid(val) {
+  if (!val || typeof val !== 'string') return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
+}
+
+function toUuid(str) {
+  if (!str) return null;
+  const s = String(str).trim();
+  if (isUuid(s)) return s;
   let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = (hash << 5) - hash + str.charCodeAt(i);
+  for (let i = 0; i < s.length; i++) {
+    hash = ((hash << 5) - hash) + s.charCodeAt(i);
     hash |= 0;
   }
   const hex = Math.abs(hash).toString(16).padStart(8, '0');
-  return `${hex.substring(0,8)}-0000-4000-8000-000000000000`;
+  const pad = '1234567890abcdef1234567890abcdef';
+  const fullHex = (hex + pad).slice(0, 32);
+  return `${fullHex.slice(0, 8)}-${fullHex.slice(8, 12)}-4${fullHex.slice(13, 16)}-8${fullHex.slice(17, 20)}-${fullHex.slice(20, 32)}`;
 }
 
 export default function StudentTrainingReport({
@@ -47,7 +54,7 @@ export default function StudentTrainingReport({
   );
   const [conclusion, setConclusion] = useState(initialConclusion || 'Đáp ứng');
   const [modules, setModules] = useState([]);
-  const [customTotalHours, setCustomTotalHours] = useState('0 phút');
+  const [customTotalHours, setCustomTotalHours] = useState('0 phút 00 giây');
   const [isEditingHours, setIsEditingHours] = useState(false);
   const [fullCourseData, setFullCourseData] = useState(course || null);
   const [studentProgressList, setStudentProgressList] = useState([]);
@@ -123,83 +130,93 @@ export default function StudentTrainingReport({
     }
   }, [student]);
 
-  // 3. Hiển thị các chương học viên đã học và thời lượng thực tế từ CSDL Supabase (từng phút từng giây)
+  // 3. Hiển thị tất cả các chương bài học của khóa học cùng thời lượng thực tế từ CSDL Supabase (từng giờ, phút, giây)
   useEffect(() => {
     const chapters = fullCourseData?.chapters || [];
     const studentPct = Number(student?.progress) || 0;
     const sortedChapters = [...chapters].sort((a, b) => (a.order_index || 0) - (b.order_index || 0));
 
+    // Lấy tiến độ lưu trong localStorage làm fallback / đồng bộ realtime
+    let localChapterProgress = {};
+    if (typeof window !== 'undefined' && (student?.id || student?.username) && fullCourseData?.id) {
+      try {
+        const key1 = `driveedu_progress_${student.id}_${fullCourseData.id}`;
+        const key2 = `driveedu_progress_${student.username}_${fullCourseData.id}`;
+        const raw1 = localStorage.getItem(key1);
+        const raw2 = localStorage.getItem(key2);
+        if (raw1) localChapterProgress = JSON.parse(raw1);
+        else if (raw2) localChapterProgress = JSON.parse(raw2);
+      } catch (e) {}
+    }
+
     const studiedRows = [];
     let totalSec = 0;
-
-    // Lọc danh sách các bản ghi có thời gian học thực tế từ Supabase
-    const validProgressRecords = (studentProgressList || []).filter(p => p && Number(p.watched_seconds) > 0);
 
     sortedChapters.forEach((ch, chIdx) => {
       const lessons = [...(ch.lessons || [])].sort((a, b) => (a.order_index || 0) - (b.order_index || 0));
       let chapterStudiedSec = 0;
       const studiedLessonNames = [];
 
+      // 1. Tính tổng số giây học từ CSDL Supabase (bảng study_progress)
+      const chUuid = toUuid(ch.id);
+      const lessonUuids = lessons.map(l => ({ rawId: l.id, uuid: toUuid(l.id) }));
+
+      (studentProgressList || []).forEach(r => {
+        if (!r) return;
+        const rLessonId = r.lesson_id;
+        const rChapterId = r.lessons?.chapter_id || r.chapter_id;
+
+        const isMatchChapter = (
+          (rChapterId && (rChapterId === ch.id || rChapterId === chUuid)) ||
+          (rLessonId && (rLessonId === ch.id || rLessonId === chUuid)) ||
+          lessonUuids.some(lu => lu.rawId === rLessonId || lu.uuid === rLessonId)
+        );
+
+        if (isMatchChapter) {
+          chapterStudiedSec += Number(r.watched_seconds) || 0;
+        }
+      });
+
+      // 2. So sánh với số giây lưu trong LocalStorage (lấy giá trị lớn nhất)
+      const localSec = Number(localChapterProgress[ch.id]?.studiedSeconds || localChapterProgress[chUuid]?.studiedSeconds || 0);
+      chapterStudiedSec = Math.max(chapterStudiedSec, localSec);
+
+      // Thống kê các bài học đã học trong chương
       if (lessons.length > 0) {
         lessons.forEach((l, lIdx) => {
-          const matchingRecs = (studentProgressList || []).filter(r =>
-            r.lesson_id === l.id ||
-            r.lesson_id === toUuidHelper(l.id) ||
-            r.lesson_id === ch.id ||
-            r.lesson_id === toUuidHelper(ch.id)
+          const lUuid = toUuid(l.id);
+          const hasRec = (studentProgressList || []).some(r =>
+            r && (r.lesson_id === l.id || r.lesson_id === lUuid) && Number(r.watched_seconds) > 0
           );
-
-          let watched = matchingRecs.reduce((sum, r) => sum + (Number(r.watched_seconds) || 0), 0);
-          const isComp = matchingRecs.some(r => r.is_completed);
-
-          // Nếu CSDL có bản ghi thực tế nhưng chưa khớp UUID chính xác, dùng bản ghi thực tế đầu tiên
-          if (watched === 0 && validProgressRecords.length > 0 && lIdx === 0 && chIdx === 0) {
-            watched = validProgressRecords.reduce((sum, r) => sum + (Number(r.watched_seconds) || 0), 0);
-          }
-
-          if (watched > 0 || isComp) {
-            chapterStudiedSec += watched;
+          if (hasRec) {
             studiedLessonNames.push(l.title ? l.title.trim() : `Bài ${lIdx + 1}`);
           }
         });
+      }
+
+      totalSec += chapterStudiedSec;
+
+      // Chuẩn hóa tên tiêu đề chương
+      const rawTitle = (ch.title || '').trim();
+      let displayTitle = '';
+      const match = rawTitle.match(/^chương\s*(\d+)[:\s-]*(.*)$/i) || rawTitle.match(/^chuong\s*(\d+)[:\s-]*(.*)$/i);
+      if (match) {
+        const num = match[1] || (chIdx + 1);
+        const rest = (match[2] || '').trim();
+        displayTitle = rest ? `Chương ${num}: ${rest}` : `Chương ${num}`;
       } else {
-        const matchingRecs = (studentProgressList || []).filter(r =>
-          r.lesson_id === ch.id ||
-          r.lesson_id === toUuidHelper(ch.id)
-        );
-        let watched = matchingRecs.reduce((sum, r) => sum + (Number(r.watched_seconds) || 0), 0);
-        if (watched === 0 && validProgressRecords.length > 0 && chIdx === 0) {
-          watched = validProgressRecords.reduce((sum, r) => sum + (Number(r.watched_seconds) || 0), 0);
-        }
-        if (watched > 0) {
-          chapterStudiedSec += watched;
-        }
+        displayTitle = `Chương ${chIdx + 1}: ${rawTitle}`;
       }
 
-      if (chapterStudiedSec > 0) {
-        totalSec += chapterStudiedSec;
-
-        const rawTitle = (ch.title || '').trim();
-        let displayTitle = '';
-        const match = rawTitle.match(/^chương\s*(\d+)[:\s-]*(.*)$/i) || rawTitle.match(/^chuong\s*(\d+)[:\s-]*(.*)$/i);
-        if (match) {
-          const num = match[1] || (chIdx + 1);
-          const rest = (match[2] || '').trim();
-          displayTitle = rest ? `Chương ${num}: ${rest}` : `Chương ${num}`;
-        } else {
-          displayTitle = `Chương ${chIdx + 1}: ${rawTitle}`;
-        }
-
-        if (studiedLessonNames.length > 0 && lessons.length > 0) {
-          displayTitle += ` (Đã học ${studiedLessonNames.length}/${lessons.length} bài: ${studiedLessonNames.join(', ')})`;
-        }
-
-        studiedRows.push({
-          id: studiedRows.length + 1,
-          title: displayTitle,
-          defaultDuration: formatExactTime(chapterStudiedSec)
-        });
+      if (studiedLessonNames.length > 0 && lessons.length > 0) {
+        displayTitle += ` (Đã học ${studiedLessonNames.length}/${lessons.length} bài: ${studiedLessonNames.join(', ')})`;
       }
+
+      studiedRows.push({
+        id: chIdx + 1,
+        title: displayTitle,
+        defaultDuration: formatExactTime(chapterStudiedSec)
+      });
     });
 
     if (studiedRows.length > 0) {
@@ -210,7 +227,7 @@ export default function StudentTrainingReport({
       setModules([
         {
           id: 1,
-          title: 'Học viên chưa có thời lượng ghi nhận trong khóa học',
+          title: 'Chương 1: Quy định chung và Hệ thống Biển báo Giao thông',
           defaultDuration: '0 phút 00 giây'
         }
       ]);
