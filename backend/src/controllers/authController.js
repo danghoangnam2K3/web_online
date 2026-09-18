@@ -594,8 +594,9 @@ async function sendResetOtp(req, res) {
           emailSent = true;
           console.log(`[MAILJET OTP] Đã gửi mã OTP thành công tới email học viên ${studentEmail}`);
         } else {
-          console.warn('[MAILJET OTP] Lỗi gửi mail qua Mailjet:', mailjetData);
-          emailErrorMsg = mailjetData?.Messages?.[0]?.Errors?.[0]?.ErrorMessage || 'Lỗi Mailjet API';
+          console.warn('[MAILJET OTP] Lỗi gửi mail qua Mailjet:', JSON.stringify(mailjetData));
+          const mjErrDetail = mailjetData?.ErrorMessage || mailjetData?.Messages?.[0]?.Errors?.[0]?.ErrorMessage || (mailjetData ? JSON.stringify(mailjetData) : 'Lỗi Mailjet API');
+          emailErrorMsg = `Mailjet: ${mjErrDetail}`;
         }
       } catch (mjErr) {
         console.warn('[MAILJET OTP] Lỗi kết nối Mailjet:', mjErr.message);
