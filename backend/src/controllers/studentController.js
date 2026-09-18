@@ -286,6 +286,28 @@ exports.updateStudent = async (req, res) => {
     if (body.course_name !== undefined) baseUpdate.course_name = body.course_name;
     if (body.progress !== undefined)    baseUpdate.progress   = parseInt(body.progress) || 0;
     
+    // Nếu Admin Reset tiến độ học viên về 0%, xóa sạch lịch sử học tập & làm bài trong CSDL
+    if (body.progress !== undefined && Number(body.progress) === 0) {
+      try {
+        let resolvedStudentId = id;
+        if (!isUuid(id)) {
+          const { data: s } = await supabase
+            .from('students')
+            .select('id')
+            .or(`username.eq.${id},email.eq.${id}`)
+            .limit(1)
+            .single();
+          if (s && s.id) resolvedStudentId = s.id;
+        }
+        if (resolvedStudentId) {
+          await supabase.from('study_progress').delete().eq('student_id', resolvedStudentId);
+          await supabase.from('quiz_attempts').delete().eq('student_id', resolvedStudentId);
+        }
+      } catch (delErr) {
+        console.warn('Reset study_progress warning:', delErr.message);
+      }
+    }
+    
     // Nếu có cập nhật mật khẩu, tự động băm Bcrypt
     if (body.password !== undefined && String(body.password).trim() !== '') {
       const raw = String(body.password).trim();

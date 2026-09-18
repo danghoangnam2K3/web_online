@@ -291,23 +291,31 @@ export default function StudentPortal({ onSwitchToAdmin }) {
     // 1. Tải tiến độ học tập thực tế từ CSDL Supabase
     if (user.id) {
       fetchStudentProgressApi(user.id).then(backendProgress => {
+        const isProgressEmpty = !Array.isArray(backendProgress) || backendProgress.length === 0;
+
+        // Nếu trên CSDL Supabase đã bị Admin Reset về 0% (hoặc không còn lịch sử học), xóa hoàn toàn cache LocalStorage
+        if (isProgressEmpty || Number(user.progress) === 0) {
+          const fresh = getInitial();
+          setChapterProgress(fresh);
+          try {
+            localStorage.removeItem(storageKey);
+          } catch (e) {}
+          return;
+        }
+
         if (Array.isArray(backendProgress) && backendProgress.length > 0) {
           setChapterProgress(prev => {
-            const updated = { ...prev };
+            const updated = getInitial();
             (selectedCourse.chapters || []).forEach(ch => {
               const chapterLessons = (ch.lessons || []).map(l => l.id);
-              const chapterRecords = backendProgress.filter(r => chapterLessons.includes(r.lesson_id));
+              const chapterRecords = backendProgress.filter(r => chapterLessons.includes(r.lesson_id) || r.lesson_id === ch.id);
               const totalDbSeconds = chapterRecords.reduce((sum, r) => sum + (Number(r.watched_seconds) || 0), 0);
               const isDbComp = chapterRecords.some(r => r.is_completed);
 
-              const currentSec = updated[ch.id]?.studiedSeconds || 0;
-              const maxSec = Math.max(currentSec, totalDbSeconds);
-              const isComp = updated[ch.id]?.isCompleted || isDbComp;
-
-              if (maxSec > 0 || isComp) {
+              if (totalDbSeconds > 0 || isDbComp) {
                 updated[ch.id] = {
-                  studiedSeconds: maxSec,
-                  isCompleted: isComp
+                  studiedSeconds: totalDbSeconds,
+                  isCompleted: isDbComp
                 };
               }
             });
@@ -321,6 +329,10 @@ export default function StudentPortal({ onSwitchToAdmin }) {
 
       // 2. Tải toàn bộ kết quả bài kiểm tra đã lưu từ CSDL Supabase
       fetchQuizAttemptsApi(user.id).then(attempts => {
+        if (!Array.isArray(attempts) || attempts.length === 0 || Number(user.progress) === 0) {
+          setSavedQuizAttempts({});
+          return;
+        }
         if (Array.isArray(attempts) && attempts.length > 0) {
           const attemptMap = {};
           attempts.forEach(att => {
@@ -343,7 +355,7 @@ export default function StudentPortal({ onSwitchToAdmin }) {
               }
             });
           });
-          setSavedQuizAttempts(prev => ({ ...prev, ...attemptMap }));
+          setSavedQuizAttempts(attemptMap);
         }
       }).catch(err => console.warn('Lỗi tải bài kiểm tra Supabase:', err.message));
     }
