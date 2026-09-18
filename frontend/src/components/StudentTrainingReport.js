@@ -218,13 +218,6 @@ export default function StudentTrainingReport({
       setConclusion(studentPct >= 80 ? 'Đáp ứng' : `Chưa đáp ứng (Tiến độ: ${studentPct}%)`);
     }
   }, [fullCourseData, student, studentProgressList]);
-          }
-        ]);
-        setCustomTotalHours('0 phút');
-        setConclusion('Chưa đáp ứng (Tiến độ: 0%)');
-      }
-    }
-  }, [fullCourseData, student, studentProgressList]);
 
   // Format ngày sinh
   const formatDob = (dobStr) => {
