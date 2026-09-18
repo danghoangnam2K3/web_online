@@ -526,11 +526,27 @@ export async function saveStudentProgressApi(studentId, progressData) {
 
 export async function fetchStudentProgressApi(studentId) {
   try {
-    return await apiFetch(`/students/${studentId}/study-progress`);
+    // BUG FIX: Luôn bypass cache để admin thấy dữ liệu học tập mới nhất, không bị stale 60s
+    const res = await fetch(`${BASE_URL}/students/${studentId}/study-progress`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-cache, no-store',
+        'Pragma': 'no-cache'
+      }
+    });
+    if (!res.ok) return [];
+    const json = await res.json();
+    // API trả về { success, data: [...] } hoặc mảng trực tiếp
+    if (Array.isArray(json)) return json;
+    if (Array.isArray(json?.data)) return json.data;
+    return [];
   } catch (err) {
+    console.warn('Lỗi tải tiến độ học từ Supabase:', err.message);
     return [];
   }
 }
+
 
 // ─── Student Quiz Attempts ───────────────────────────────────────────────────
 export async function saveQuizAttemptApi(studentId, attemptData) {

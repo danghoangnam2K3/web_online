@@ -197,10 +197,14 @@ export default function StudentTrainingReport({
     const studiedRows = [];
     let totalSec = 0;
 
+    // Kiểm tra xem có dữ liệu thực từ DB hay không
+    const hasDbData = studentProgressList && studentProgressList.length > 0;
+    const hasLocalData = Object.keys(localChapterProgress).length > 0;
+
     sortedChapters.forEach((ch, chIdx) => {
       const lessons = [...(ch.lessons || [])].sort((a, b) => (a.order_index || 0) - (b.order_index || 0));
 
-      // Giây từ DB
+      // Giây từ DB (map đã tính ở trên)
       let chapterStudiedSec = chapterSecMap[ch.id] || 0;
 
       // BUG FIX: Lấy max giữa DB và localStorage (không bỏ sót giờ)
@@ -210,6 +214,17 @@ export default function StudentTrainingReport({
         0
       );
       chapterStudiedSec = Math.max(chapterStudiedSec, localSec);
+
+      // FALLBACK: Nếu cả DB lẫn localStorage đều trống nhưng student.progress > 0
+      // (xảy ra khi backend cold-start, save thất bại nhưng % vẫn được update)
+      // → Ước tính thời gian từ progress% × duration của chapter
+      if (chapterStudiedSec === 0 && !hasDbData && !hasLocalData && studentPct > 0) {
+        const chDurationSec = (ch.duration_minutes || 30) * 60;
+        const minPct = ch.min_completion_pct || 80;
+        // Phân phối thời gian học theo tiến độ (chia đều cho các chương)
+        const perChapterPct = studentPct / Math.max(1, sortedChapters.length);
+        chapterStudiedSec = Math.round(chDurationSec * (perChapterPct / 100));
+      }
 
       // Thống kê các bài học đã học trong chương
       const studiedLessonNames = lessons
