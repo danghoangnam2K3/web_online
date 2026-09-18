@@ -307,8 +307,11 @@ export default function StudentPortal({ onSwitchToAdmin }) {
       fetchStudentProgressApi(user.id).then(backendProgress => {
         const hasDbProgress = Array.isArray(backendProgress) && backendProgress.length > 0;
 
-        // Chỉ xóa Cache khi CSDL hoàn toàn rỗng VÀ % học viên trên CSDL cũng bằng 0 (Admin đã Reset)
-        if (!hasDbProgress && Number(user.progress) === 0) {
+        // BUG FIX: Chỉ reset khi Admin chủ động reset (DB rỗng VÀ user.progress từ server = 0)
+        // KHÔNG xóa localStorage khi backend trả về rỗng do lỗi mạng (cold start Render, timeout...)
+        // Phải kiểm tra studentProfile.progress (từ /auth/me) thay vì user.progress (có thể stale)
+        const serverProgress = Number(studentProfile?.progress ?? user?.progress ?? -1);
+        if (!hasDbProgress && serverProgress === 0) {
           const fresh = getInitial();
           setChapterProgress(fresh);
           try {
@@ -317,11 +320,16 @@ export default function StudentPortal({ onSwitchToAdmin }) {
           return;
         }
 
+        // Nếu DB rỗng nhưng serverProgress > 0 thì giữ nguyên localData (tránh mất giờ)
+        if (!hasDbProgress) return;
+
         if (hasDbProgress) {
           setChapterProgress(prev => {
             const updated = { ...localData };
             (selectedCourse.chapters || []).forEach(ch => {
               const chapterLessons = (ch.lessons || []).map(l => l.id);
+
+              // Tạo tất cả variant UUID có thể của chapter và lessons
               const allPossibleIds = [
                 ch.id,
                 toUuidHelper(ch.id),
@@ -329,22 +337,28 @@ export default function StudentPortal({ onSwitchToAdmin }) {
                 ...chapterLessons.map(id => toUuidHelper(id))
               ].filter(Boolean);
 
-              const chapterRecords = backendProgress.filter(r => allPossibleIds.includes(r.lesson_id));
+              // BUG FIX: Lọc records từ DB theo allPossibleIds (lesson_id hoặc chapter_id)
+              const chapterRecords = backendProgress.filter(r =>
+                allPossibleIds.includes(r.lesson_id) ||
+                (r.lessons && allPossibleIds.includes(r.lessons?.chapter_id))
+              );
+
+              // Tổng thời gian từ DB: cộng tất cả lessons trong chương (không nhân đôi)
+              // Nếu nhiều lessons trong 1 chapter, cộng từng cái (mỗi record là 1 lesson)
               const totalDbSeconds = chapterRecords.reduce((sum, r) => sum + (Number(r.watched_seconds) || 0), 0);
               const isDbComp = chapterRecords.some(r => r.is_completed);
 
               const localSec = prev[ch.id]?.studiedSeconds || localData[ch.id]?.studiedSeconds || 0;
               const localComp = prev[ch.id]?.isCompleted || localData[ch.id]?.isCompleted || false;
 
+              // Lấy giá trị lớn hơn giữa local và DB (tránh mất giờ)
               const maxSec = Math.max(localSec, totalDbSeconds);
               const isComp = localComp || isDbComp;
 
-              if (maxSec > 0 || isComp) {
-                updated[ch.id] = {
-                  studiedSeconds: maxSec,
-                  isCompleted: isComp
-                };
-              }
+              updated[ch.id] = {
+                studiedSeconds: maxSec,
+                isCompleted: isComp
+              };
             });
             try {
               localStorage.setItem(storageKey, JSON.stringify(updated));
@@ -352,12 +366,17 @@ export default function StudentPortal({ onSwitchToAdmin }) {
             return updated;
           });
         }
-      }).catch(err => console.warn('Lỗi tải tiến độ Supabase:', err.message));
+      }).catch(err => {
+        // BUG FIX: Khi lỗi mạng, KHÔNG xóa localData - giữ nguyên giờ đã học
+        console.warn('Lỗi tải tiến độ Supabase (giữ nguyên LocalStorage):', err.message);
+      });
 
       // 2. Tải toàn bộ kết quả bài kiểm tra đã lưu từ CSDL Supabase
       fetchQuizAttemptsApi(user.id).then(attempts => {
-        if (!Array.isArray(attempts) || attempts.length === 0 || Number(user.progress) === 0) {
-          setSavedQuizAttempts({});
+        // BUG FIX: Không reset quiz chỉ vì user.progress === 0 trong session (có thể stale)
+        // Chỉ bỏ qua nếu thực sự không có attempts nào từ DB
+        if (!Array.isArray(attempts) || attempts.length === 0) {
+          // Giữ lại bất kỳ quiz data trong localStorage (không setSavedQuizAttempts({}))
           return;
         }
         if (Array.isArray(attempts) && attempts.length > 0) {
@@ -824,6 +843,39 @@ export default function StudentPortal({ onSwitchToAdmin }) {
     return null;
   };
 
+  // ── HELPER THOÁT PHÒNG HỌC: LƯU TIẾN ĐỘ TRƯỚC KHI THOÁT ──────────────────
+  // Dùng chung cho: logo click, tab "Khóa học", nút "Quay lại", avatar click
+  const handleExitCourse = () => {
+    setIsTimerRunning(false);
+    // Nếu đang trong phòng học thì lưu tiến độ hiện tại ngay lập tức
+    if (currentLesson && user?.id && selectedCourse) {
+      const chId = currentLesson.chapterId;
+      // Đọc state mới nhất từ React (dùng functional form không được trong callback ngoài)
+      setChapterProgress(latest => {
+        const curData = latest[chId];
+        if (curData && curData.studiedSeconds > 0) {
+          // 1. Lưu vào localStorage ngay (đồng bộ)
+          const storageKey = `driveedu_progress_${user.id || user.username || 'student'}_${selectedCourse.id}`;
+          try { localStorage.setItem(storageKey, JSON.stringify(latest)); } catch (e) {}
+          // 2. Đẩy lên Supabase (bất đồng bộ)
+          const overallPct = calcOverallProgress(selectedCourse.chapters, latest);
+          saveStudentProgressApi(user.id, {
+            course_id: selectedCourse.id,
+            chapter_id: chId,
+            lesson_id: currentLesson.lesson.id,
+            seconds_added: 0,
+            total_studied_seconds: curData.studiedSeconds,
+            is_completed: curData.isCompleted,
+            progress: overallPct
+          });
+        }
+        return latest; // không đổi state
+      });
+    }
+    setSelectedCourse(null);
+    setCurrentLesson(null);
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans relative">
       {/* Canvas pháo hoa Confetti */}
@@ -840,7 +892,7 @@ export default function StudentPortal({ onSwitchToAdmin }) {
             className="flex items-center gap-3 cursor-pointer"
             onClick={() => {
               setHeadTab('courses');
-              setSelectedCourse(null);
+              handleExitCourse();
             }}
           >
             <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-700 via-blue-600 to-indigo-600 flex items-center justify-center text-white shadow-md shadow-blue-500/25">
@@ -890,7 +942,7 @@ export default function StudentPortal({ onSwitchToAdmin }) {
               id="head-tab-account"
               onClick={() => {
                 setHeadTab('account');
-                setSelectedCourse(null);
+                handleExitCourse();
               }}
               className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition-all duration-200 ${
                 headTab === 'account'
@@ -922,7 +974,7 @@ export default function StudentPortal({ onSwitchToAdmin }) {
             <div
               onClick={() => {
                 setHeadTab('account');
-                setSelectedCourse(null);
+                handleExitCourse();
               }}
               className="flex items-center gap-2 cursor-pointer p-1 rounded-xl hover:bg-slate-100 transition-colors"
               title="Xem thông tin tài khoản"
@@ -942,6 +994,28 @@ export default function StudentPortal({ onSwitchToAdmin }) {
             {/* Logout */}
             <button
               onClick={() => {
+                // Lưu tiến độ cuối cùng trước khi đăng xuất
+                if (currentLesson && user?.id && selectedCourse) {
+                  const chId = currentLesson.chapterId;
+                  const curData = chapterProgress[chId];
+                  if (curData && curData.studiedSeconds > 0) {
+                    const overallPct = calcOverallProgress(selectedCourse.chapters, chapterProgress);
+                    const payload = JSON.stringify({
+                      course_id: selectedCourse.id,
+                      chapter_id: chId,
+                      lesson_id: currentLesson.lesson.id,
+                      seconds_added: 0,
+                      total_studied_seconds: curData.studiedSeconds,
+                      is_completed: curData.isCompleted,
+                      progress: overallPct
+                    });
+                    try {
+                      if (navigator.sendBeacon) {
+                        navigator.sendBeacon(`${BASE_URL}/students/${user.id}/study-progress`, new Blob([payload], { type: 'application/json' }));
+                      }
+                    } catch (e) {}
+                  }
+                }
                 logout();
                 router.push('/login');
               }}
@@ -1107,11 +1181,7 @@ export default function StudentPortal({ onSwitchToAdmin }) {
               <div className="flex items-center gap-3">
                 <button
                   id="btn-back-to-my-courses"
-                  onClick={() => {
-                    setSelectedCourse(null);
-                    setCurrentLesson(null);
-                    setIsTimerRunning(false);
-                  }}
+                  onClick={handleExitCourse}
                   className="p-2.5 rounded-xl text-slate-600 hover:text-blue-600 hover:bg-blue-50 border border-slate-200 transition-colors flex items-center gap-1.5 font-bold text-xs"
                 >
                   <ArrowLeft className="w-4 h-4" />
