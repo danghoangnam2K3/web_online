@@ -506,17 +506,17 @@ async function sendResetOtp(req, res) {
     const masked = maskEmail(studentEmail);
     const transporter = getEmailTransporter();
 
-    // Nếu chưa cấu hình EMAIL_USER / EMAIL_PASS trong biến môi trường
-    if (!transporter) {
+    // Kiểm tra nếu chưa cấu hình bất kỳ dịch vụ gửi mail nào
+    if (!transporter && !process.env.RESEND_API_KEY && !process.env.BREVO_API_KEY) {
       return res.status(500).json({
         success: false,
-        message: 'Hệ thống chưa cấu hình thông tin gửi email (EMAIL_USER / EMAIL_PASS). Vui lòng liên hệ quản trị viên hoặc sử dụng tab "Xác minh CCCD"!'
+        message: 'Hệ thống chưa cấu hình dịch vụ gửi email (Gmail SMTP / Resend / Brevo). Vui lòng liên hệ quản trị viên hoặc sử dụng tab "Xác minh CCCD"!'
       });
     }
 
-    // 3. Gửi email qua Gmail SMTP
+    const senderEmail = process.env.EMAIL_USER || process.env.GMAIL_USER || 'support@driveedu.vn';
     const mailOptions = {
-      from: `"DriveEdu Support" <${process.env.EMAIL_USER || process.env.GMAIL_USER}>`,
+      from: `"DriveEdu Support" <${senderEmail}>`,
       to: studentEmail,
       subject: `[DriveEdu] Mã xác nhận đặt lại mật khẩu: ${otp}`,
       html: `
@@ -547,12 +547,27 @@ async function sendResetOtp(req, res) {
       `
     };
 
-    // 3. Gửi email qua HTTPS API (Resend / Brevo) hoặc Gmail SMTP
     let emailSent = false;
     let emailErrorMsg = '';
 
-    // Cách 1: Gửi qua Resend API (HTTPS port 443 - không bao giờ bị Render chặn)
-    if (process.env.RESEND_API_KEY) {
+    // Cách 1: Gửi qua Gmail SMTP (Nodemailer) - Gửi trực tiếp đến email học viên studentEmail
+    if (transporter) {
+      try {
+        const sendPromise = transporter.sendMail(mailOptions);
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Máy chủ Gmail SMTP phản hồi chậm quá 6s (Render Free có thể chặn port SMTP)')), 6000)
+        );
+        await Promise.race([sendPromise, timeoutPromise]);
+        emailSent = true;
+        console.log(`[GMAIL OTP] Đã gửi mã OTP thành công tới email học viên: ${studentEmail}`);
+      } catch (sendErr) {
+        console.warn('[GMAIL OTP] Gửi qua Gmail SMTP thất bại:', sendErr.message);
+        emailErrorMsg = sendErr.message;
+      }
+    }
+
+    // Cách 2: Gửi qua Resend API (HTTPS port 443)
+    if (!emailSent && process.env.RESEND_API_KEY) {
       try {
         const resendRes = await fetch('https://api.resend.com/emails', {
           method: 'POST',
@@ -561,7 +576,7 @@ async function sendResetOtp(req, res) {
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
-            from: 'DriveEdu <onboarding@resend.dev>',
+            from: process.env.RESEND_FROM || 'DriveEdu <onboarding@resend.dev>',
             to: [studentEmail],
             subject: `[DriveEdu] Mã xác nhận đặt lại mật khẩu: ${otp}`,
             html: mailOptions.html
@@ -570,42 +585,10 @@ async function sendResetOtp(req, res) {
         const resendData = await resendRes.json();
         if (resendRes.ok) {
           emailSent = true;
-          console.log(`[RESEND OTP] Đã gửi thư thành công tới ${studentEmail}:`, resendData.id);
+          console.log(`[RESEND OTP] Đã gửi mã OTP thành công tới email học viên ${studentEmail}:`, resendData.id);
         } else if (resendData?.message?.includes('You can only send testing emails to your own email address')) {
-          // Trích xuất email tài khoản đăng ký Resend từ thông báo lỗi
-          const match = resendData.message.match(/\(([^)]+)\)/);
-          const ownerEmail = match ? match[1].trim() : null;
-          if (ownerEmail && ownerEmail.includes('@')) {
-            console.log(`[RESEND OTP] Tài khoản Resend sandbox giới hạn gửi tới email đăng ký. Đang gửi tới: ${ownerEmail}`);
-            const retryRes = await fetch('https://api.resend.com/emails', {
-              method: 'POST',
-              headers: {
-                'Authorization': `Bearer ${process.env.RESEND_API_KEY.trim()}`,
-                'Content-Type': 'application/json'
-              },
-              body: JSON.stringify({
-                from: 'DriveEdu <onboarding@resend.dev>',
-                to: [ownerEmail],
-                subject: `[DriveEdu] Mã xác nhận đặt lại mật khẩu: ${otp}`,
-                html: mailOptions.html
-              })
-            });
-            const retryData = await retryRes.json();
-            if (retryRes.ok) {
-              emailSent = true;
-              console.log(`[RESEND OTP] Đã gửi thư thành công tới email tài khoản: ${ownerEmail}`);
-              return res.json({
-                success: true,
-                message: `Mã xác nhận OTP đã được gửi đến email ${maskEmail(ownerEmail)}. Vui lòng kiểm tra hộp thư trên thiết bị và nhập mã vào bên dưới!`,
-                email_masked: maskEmail(ownerEmail),
-                identity: student.username || studentEmail
-              });
-            } else {
-              emailErrorMsg = retryData?.message || 'Lỗi gửi mail qua Resend';
-            }
-          } else {
-            emailErrorMsg = resendData.message;
-          }
+          console.warn(`[RESEND OTP] Tài khoản Resend ở chế độ Thử nghiệm (Sandbox) nên chỉ cho phép gửi về email chính chủ đăng ký Resend. Không thể gửi tới email học viên: ${studentEmail}`);
+          emailErrorMsg = 'Tài khoản Resend ở chế độ Sandbox thử nghiệm nên chỉ gửi được tới email quản trị. Vui lòng xác minh Domain trên Resend hoặc dùng Gmail SMTP / tab Xác minh CCCD.';
         } else {
           console.warn('[RESEND OTP] Lỗi gửi mail qua Resend:', resendData);
           emailErrorMsg = resendData?.message || 'Lỗi gửi qua Resend API';
@@ -616,7 +599,7 @@ async function sendResetOtp(req, res) {
       }
     }
 
-    // Cách 2: Gửi qua Brevo API (HTTPS port 443)
+    // Cách 3: Gửi qua Brevo API (HTTPS port 443)
     if (!emailSent && process.env.BREVO_API_KEY) {
       try {
         const brevoSender = process.env.EMAIL_USER || 'support@driveedu.vn';
@@ -636,7 +619,7 @@ async function sendResetOtp(req, res) {
         const brevoData = await brevoRes.json();
         if (brevoRes.ok) {
           emailSent = true;
-          console.log(`[BREVO OTP] Đã gửi thư thành công tới ${studentEmail}:`, brevoData.messageId);
+          console.log(`[BREVO OTP] Đã gửi mã OTP thành công tới email học viên ${studentEmail}:`, brevoData.messageId);
         } else {
           console.warn('[BREVO OTP] Lỗi gửi mail qua Brevo:', brevoData);
           emailErrorMsg = brevoData?.message || 'Lỗi gửi qua Brevo API';
@@ -647,32 +630,16 @@ async function sendResetOtp(req, res) {
       }
     }
 
-    // Cách 3: Gửi qua Gmail SMTP (Nodemailer) - Chỉ chạy nếu không dùng Resend/Brevo
-    if (!emailSent && !process.env.RESEND_API_KEY && !process.env.BREVO_API_KEY && transporter) {
-      try {
-        const sendPromise = transporter.sendMail(mailOptions);
-        const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Máy chủ gửi thư Gmail phản hồi chậm quá 6s (Render Free chặn cổng SMTP)')), 6000)
-        );
-        await Promise.race([sendPromise, timeoutPromise]);
-        emailSent = true;
-        console.log(`[GMAIL OTP] Đã gửi mã OTP thành công tới ${studentEmail}`);
-      } catch (sendErr) {
-        console.error('[GMAIL OTP] Gửi email thất bại:', sendErr.message);
-        emailErrorMsg = sendErr.message;
-      }
-    }
-
     if (!emailSent) {
       return res.status(500).json({
         success: false,
-        message: `Không thể gửi mã OTP tới email ${masked} (Lý do: ${emailErrorMsg}). Do Render gói miễn phí chặn các cổng SMTP gửi thư của Gmail, bạn vui lòng sử dụng tab "Xác minh CCCD" để đổi mật khẩu ngay, hoặc cấu hình RESEND_API_KEY trên Render!`
+        message: `Không thể gửi mã OTP tới email ${masked} của học viên (Chi tiết: ${emailErrorMsg}). Vui lòng sử dụng tab "Xác minh CCCD" để đổi mật khẩu ngay!`
       });
     }
 
     return res.json({
       success: true,
-      message: `Mã xác nhận OTP đã được gửi đến email ${masked}. Vui lòng kiểm tra hộp thư trên điện thoại/máy tính của bạn và nhập mã vào bên dưới!`,
+      message: `Mã xác nhận OTP đã được gửi đến email ${masked} của bạn. Vui lòng kiểm tra hộp thư trên thiết bị và nhập mã vào bên dưới!`,
       email_masked: masked,
       identity: student.username || studentEmail
     });
