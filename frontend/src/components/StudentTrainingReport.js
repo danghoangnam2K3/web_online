@@ -2,6 +2,18 @@ import React, { useState, useEffect } from 'react';
 import { Printer, Download, FileText, CheckCircle2, UserCheck, Calendar, Building2, Award, Hash, Image as ImageIcon, BookOpen, Clock } from 'lucide-react';
 import { fetchCourseById, fetchCourses, fetchStudentProgressApi } from '../lib/api';
 
+function formatExactTime(totalSec) {
+  if (!totalSec || totalSec <= 0) return '0 phút 00 giây';
+  const hrs = Math.floor(totalSec / 3600);
+  const mins = Math.floor((totalSec % 3600) / 60);
+  const secs = totalSec % 60;
+  const padSec = String(secs).padStart(2, '0');
+  if (hrs > 0) {
+    return `${hrs} giờ ${mins} phút ${padSec} giây`;
+  }
+  return `${mins} phút ${padSec} giây`;
+}
+
 export default function StudentTrainingReport({
   student,
   course,
@@ -188,15 +200,8 @@ export default function StudentTrainingReport({
       // NẾU HỌC VIÊN ĐÃ HỌC CHƯƠNG NÀY (DÙ CHƯA HOÀN THÀNH TOÀN BỘ) -> ĐƯA VÀO BÁO CÁO
       if (isChapterStudied && chapterStudiedSec > 0) {
         totalSec += chapterStudiedSec;
-        const durMinutes = Math.round(chapterStudiedSec / 60);
 
-        let durationDisplay = '';
-        if (durMinutes >= 60) {
-          const hrs = Math.round((durMinutes / 60) * 10) / 10;
-          durationDisplay = `${hrs} giờ`;
-        } else {
-          durationDisplay = `${Math.max(1, durMinutes)} phút`;
-        }
+        const durationDisplay = formatExactTime(chapterStudiedSec);
 
         // Định dạng tiêu đề chương theo chuẩn
         const rawTitle = (ch.title || '').trim();
@@ -231,17 +236,8 @@ export default function StudentTrainingReport({
     if (studiedRows.length > 0) {
       setModules(studiedRows);
 
-      // Tính tổng số thời gian đã học thực tế
-      const totalMins = Math.round(totalSec / 60);
-      let totalStr = '';
-      if (totalMins >= 60) {
-        const hrs = Math.floor(totalMins / 60);
-        const remMins = totalMins % 60;
-        totalStr = remMins > 0 ? `${hrs} giờ ${remMins} phút` : `${hrs} giờ`;
-      } else {
-        totalStr = `${totalMins} phút`;
-      }
-      setCustomTotalHours(totalStr);
+      // Tính tổng số thời gian đã học thực tế theo từng phút từng giây
+      setCustomTotalHours(formatExactTime(totalSec));
 
       // Kết luận
       if (studentPct >= 80) {
