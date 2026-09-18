@@ -288,13 +288,27 @@ export default function StudentPortal({ onSwitchToAdmin }) {
     } catch (e) {}
     setChapterProgress(localData);
 
+    // Helper chuyển đổi ID chuỗi sang UUID khớp tuyệt đối với CSDL Backend Supabase
+    const toUuidHelper = (id) => {
+      if (!id) return null;
+      const str = String(id).trim();
+      if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str)) return str;
+      let hash = 0;
+      for (let i = 0; i < str.length; i++) {
+        hash = (hash << 5) - hash + str.charCodeAt(i);
+        hash |= 0;
+      }
+      const hex = Math.abs(hash).toString(16).padStart(8, '0');
+      return `${hex.substring(0,8)}-0000-4000-8000-000000000000`;
+    };
+
     // 1. Tải tiến độ học tập thực tế từ CSDL Supabase
     if (user.id) {
       fetchStudentProgressApi(user.id).then(backendProgress => {
-        const isProgressEmpty = !Array.isArray(backendProgress) || backendProgress.length === 0;
+        const hasDbProgress = Array.isArray(backendProgress) && backendProgress.length > 0;
 
-        // Nếu trên CSDL Supabase đã bị Admin Reset về 0% (hoặc không còn lịch sử học), xóa hoàn toàn cache LocalStorage
-        if (isProgressEmpty || Number(user.progress) === 0) {
+        // Chỉ xóa Cache khi CSDL hoàn toàn rỗng VÀ % học viên trên CSDL cũng bằng 0 (Admin đã Reset)
+        if (!hasDbProgress && Number(user.progress) === 0) {
           const fresh = getInitial();
           setChapterProgress(fresh);
           try {
@@ -303,19 +317,32 @@ export default function StudentPortal({ onSwitchToAdmin }) {
           return;
         }
 
-        if (Array.isArray(backendProgress) && backendProgress.length > 0) {
+        if (hasDbProgress) {
           setChapterProgress(prev => {
-            const updated = getInitial();
+            const updated = { ...localData };
             (selectedCourse.chapters || []).forEach(ch => {
               const chapterLessons = (ch.lessons || []).map(l => l.id);
-              const chapterRecords = backendProgress.filter(r => chapterLessons.includes(r.lesson_id) || r.lesson_id === ch.id);
+              const allPossibleIds = [
+                ch.id,
+                toUuidHelper(ch.id),
+                ...chapterLessons,
+                ...chapterLessons.map(id => toUuidHelper(id))
+              ].filter(Boolean);
+
+              const chapterRecords = backendProgress.filter(r => allPossibleIds.includes(r.lesson_id));
               const totalDbSeconds = chapterRecords.reduce((sum, r) => sum + (Number(r.watched_seconds) || 0), 0);
               const isDbComp = chapterRecords.some(r => r.is_completed);
 
-              if (totalDbSeconds > 0 || isDbComp) {
+              const localSec = prev[ch.id]?.studiedSeconds || localData[ch.id]?.studiedSeconds || 0;
+              const localComp = prev[ch.id]?.isCompleted || localData[ch.id]?.isCompleted || false;
+
+              const maxSec = Math.max(localSec, totalDbSeconds);
+              const isComp = localComp || isDbComp;
+
+              if (maxSec > 0 || isComp) {
                 updated[ch.id] = {
-                  studiedSeconds: totalDbSeconds,
-                  isCompleted: isDbComp
+                  studiedSeconds: maxSec,
+                  isCompleted: isComp
                 };
               }
             });

@@ -14,6 +14,19 @@ function formatExactTime(totalSec) {
   return `${mins} phút ${padSec} giây`;
 }
 
+function toUuidHelper(id) {
+  if (!id) return null;
+  const str = String(id).trim();
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str)) return str;
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = (hash << 5) - hash + str.charCodeAt(i);
+    hash |= 0;
+  }
+  const hex = Math.abs(hash).toString(16).padStart(8, '0');
+  return `${hex.substring(0,8)}-0000-4000-8000-000000000000`;
+}
+
 export default function StudentTrainingReport({
   student,
   course,
@@ -151,7 +164,7 @@ export default function StudentTrainingReport({
       if (lessons.length > 0) {
         // Khóa học có các bài học cụ thể
         lessons.forEach((l, lIdx) => {
-          const dbRec = dbProgressMap[l.id];
+          const dbRec = dbProgressMap[l.id] || dbProgressMap[toUuidHelper(l.id)] || dbProgressMap[ch.id] || dbProgressMap[toUuidHelper(ch.id)];
           let isLessonStudied = false;
           let durSec = 0;
 
