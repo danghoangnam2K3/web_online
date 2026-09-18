@@ -86,19 +86,20 @@ function formatTime(totalSeconds) {
 // Tính tổng phần trăm tiến độ khóa học thời gian thực (%)
 function calcOverallProgress(chapters, progressState) {
   if (!chapters || chapters.length === 0) return 0;
+  let sumStudied = 0;
+  let sumTotal = 0;
+  chapters.forEach(ch => {
+    const totalSec = (ch.duration_minutes || 30) * 60;
+    sumTotal += totalSec;
+    const chStudied = progressState?.[ch.id]?.studiedSeconds || 0;
+    sumStudied += Math.min(totalSec, chStudied);
+  });
+  const timePct = sumTotal > 0 ? Math.round((sumStudied / sumTotal) * 100) : 0;
+
   const totalCh = chapters.length;
   const compCh = Object.values(progressState || {}).filter(p => p?.isCompleted).length;
   const chPct = Math.round((compCh / totalCh) * 100);
 
-  let sumStudied = 0;
-  let sumReq = 0;
-  chapters.forEach(ch => {
-    const reqSec = ((ch.duration_minutes || 30) * 60) * ((ch.min_completion_pct || 80) / 100);
-    sumReq += reqSec;
-    const chStudied = progressState?.[ch.id]?.studiedSeconds || 0;
-    sumStudied += Math.min(reqSec, chStudied);
-  });
-  const timePct = sumReq > 0 ? Math.round((sumStudied / sumReq) * 100) : 0;
   return Math.min(100, Math.max(chPct, timePct));
 }
 
