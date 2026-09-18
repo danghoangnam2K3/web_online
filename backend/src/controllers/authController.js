@@ -448,36 +448,36 @@ async function sendResetOtp(req, res) {
   if (!cleanIdentity) {
     return res.status(400).json({
       success: false,
-      message: 'Vui lòng nhập Tên đăng nhập hoặc Email!'
+      message: 'Vui lòng nhập địa chỉ Email Gmail của bạn!'
     });
   }
 
   const supabase = createClient(supabaseUrl, supabaseKey);
 
   try {
-    // 1. Tìm tài khoản trong bảng students
+    // 1. Tìm tài khoản học viên theo Email Gmail hoặc Username
     let student = null;
-    const { data: byUsername } = await supabase
+    const { data: byEmail } = await supabase
       .from('students')
       .select('id, username, email, full_name')
-      .ilike('username', cleanIdentity)
+      .ilike('email', cleanIdentity)
       .limit(1);
 
-    if (byUsername && byUsername.length > 0) {
-      student = byUsername[0];
+    if (byEmail && byEmail.length > 0) {
+      student = byEmail[0];
     } else {
-      const { data: byEmail } = await supabase
+      const { data: byUsername } = await supabase
         .from('students')
         .select('id, username, email, full_name')
-        .ilike('email', cleanIdentity)
+        .ilike('username', cleanIdentity)
         .limit(1);
-      if (byEmail && byEmail.length > 0) student = byEmail[0];
+      if (byUsername && byUsername.length > 0) student = byUsername[0];
     }
 
     if (!student) {
       return res.status(404).json({
         success: false,
-        message: 'Không tìm thấy tài khoản với tên đăng nhập hoặc email này!'
+        message: 'Không tìm thấy tài khoản học viên nào với địa chỉ Email Gmail này!'
       });
     }
 
@@ -485,7 +485,7 @@ async function sendResetOtp(req, res) {
     if (!studentEmail || !studentEmail.includes('@')) {
       return res.status(400).json({
         success: false,
-        message: 'Tài khoản này chưa được cập nhật địa chỉ email. Vui lòng sử dụng phương thức "Khôi phục qua số CCCD" hoặc liên hệ quản trị viên!'
+        message: 'Tài khoản này chưa được đăng ký địa chỉ email Gmail. Vui lòng liên hệ bộ phận quản trị viên / giáo vụ!'
       });
     }
 
@@ -506,11 +506,12 @@ async function sendResetOtp(req, res) {
     const masked = maskEmail(studentEmail);
     const transporter = getEmailTransporter();
 
-    // Kiểm tra nếu chưa cấu hình bất kỳ dịch vụ gửi mail nào
-    if (!transporter && !process.env.RESEND_API_KEY && !process.env.BREVO_API_KEY) {
+    // Kiểm tra cấu hình email
+    const hasGoogleCloud = process.env.GMAIL_CLIENT_ID || process.env.GOOGLE_CLIENT_ID;
+    if (!transporter && !hasGoogleCloud && !process.env.RESEND_API_KEY && !process.env.BREVO_API_KEY && !process.env.MAILJET_API_KEY) {
       return res.status(500).json({
         success: false,
-        message: 'Hệ thống chưa cấu hình dịch vụ gửi email (Gmail SMTP / Resend / Brevo). Vui lòng liên hệ quản trị viên hoặc sử dụng tab "Xác minh CCCD"!'
+        message: 'Hệ thống chưa cấu hình dịch vụ gửi email Gmail. Vui lòng liên hệ bộ phận quản trị viên!'
       });
     }
 
