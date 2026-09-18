@@ -568,7 +568,42 @@ async function sendResetOtp(req, res) {
       }
     }
 
-    // Cách 2: Gửi qua Brevo API (HTTPS port 443 - Miễn phí 300 email/ngày, không bị Render chặn, gửi được tới MỌI Gmail học viên)
+    // Cách 2: Gửi qua Mailjet API (HTTPS port 443 - Miễn phí, KHÔNG CẦN xác minh SĐT, gửi tới MỌI Gmail học viên)
+    if (!emailSent && process.env.MAILJET_API_KEY && process.env.MAILJET_SECRET_KEY) {
+      try {
+        const authHeader = 'Basic ' + Buffer.from(`${process.env.MAILJET_API_KEY.trim()}:${process.env.MAILJET_SECRET_KEY.trim()}`).toString('base64');
+        const mailjetRes = await fetch('https://api.mailjet.com/v3.1/send', {
+          method: 'POST',
+          headers: {
+            'Authorization': authHeader,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            Messages: [
+              {
+                From: { Email: process.env.EMAIL_USER || 'support@driveedu.vn', Name: 'DriveEdu Support' },
+                To: [{ Email: studentEmail, Name: student.full_name || student.username }],
+                Subject: `[DriveEdu] Mã xác nhận đặt lại mật khẩu: ${otp}`,
+                HTMLPart: mailOptions.html
+              }
+            ]
+          })
+        });
+        const mailjetData = await mailjetRes.json();
+        if (mailjetRes.ok && mailjetData?.Messages?.[0]?.Status === 'success') {
+          emailSent = true;
+          console.log(`[MAILJET OTP] Đã gửi mã OTP thành công tới email học viên ${studentEmail}`);
+        } else {
+          console.warn('[MAILJET OTP] Lỗi gửi mail qua Mailjet:', mailjetData);
+          emailErrorMsg = mailjetData?.Messages?.[0]?.Errors?.[0]?.ErrorMessage || 'Lỗi Mailjet API';
+        }
+      } catch (mjErr) {
+        console.warn('[MAILJET OTP] Lỗi kết nối Mailjet:', mjErr.message);
+        emailErrorMsg = mjErr.message;
+      }
+    }
+
+    // Cách 3: Gửi qua Brevo API (HTTPS port 443)
     if (!emailSent && process.env.BREVO_API_KEY) {
       try {
         const brevoSender = process.env.EMAIL_USER || 'support@driveedu.vn';
@@ -599,7 +634,7 @@ async function sendResetOtp(req, res) {
       }
     }
 
-    // Cách 3: Gửi qua Resend API (HTTPS port 443)
+    // Cách 4: Gửi qua Resend API (HTTPS port 443)
     if (!emailSent && process.env.RESEND_API_KEY) {
       try {
         const resendRes = await fetch('https://api.resend.com/emails', {
