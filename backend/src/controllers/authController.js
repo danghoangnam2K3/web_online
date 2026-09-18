@@ -552,8 +552,73 @@ async function sendResetOtp(req, res) {
     let gmailSmtpError = '';
     let resendError = '';
 
-    // Cách 1: Gửi qua Gmail SMTP (Nodemailer) - Hoạt động tốt ở Local, trên Render gói Free sẽ bị Render chặn cổng SMTP (465/587)
-    if (transporter) {
+    // Cách 1: Gửi qua Google Cloud Console Gmail REST API (HTTPS Port 443 - 100% Chính chủ Google, KHÔNG BAO GIỜ BỊ CHẶN)
+    const gmailClientId = process.env.GMAIL_CLIENT_ID || process.env.GOOGLE_CLIENT_ID;
+    const gmailClientSecret = process.env.GMAIL_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET;
+    const gmailRefreshToken = process.env.GMAIL_REFRESH_TOKEN || process.env.GOOGLE_REFRESH_TOKEN;
+
+    if (!emailSent && gmailClientId && gmailClientSecret && gmailRefreshToken) {
+      try {
+        // Lấy access token mới từ Google OAuth2 via HTTPS
+        const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({
+            client_id: gmailClientId.trim(),
+            client_secret: gmailClientSecret.trim(),
+            refresh_token: gmailRefreshToken.trim(),
+            grant_type: 'refresh_token'
+          })
+        });
+        const tokenData = await tokenRes.json();
+
+        if (tokenData.access_token) {
+          const senderEmail = process.env.EMAIL_USER || process.env.GMAIL_USER || 'danghoangnam07112003@gmail.com';
+          const rawMessage = [
+            `From: DriveEdu Support <${senderEmail}>`,
+            `To: ${studentEmail}`,
+            `Subject: =?utf-8?B?${Buffer.from(`[DriveEdu] Mã xác nhận đặt lại mật khẩu: ${otp}`).toString('base64')}?=`,
+            'MIME-Version: 1.0',
+            'Content-Type: text/html; charset=utf-8',
+            '',
+            mailOptions.html
+          ].join('\r\n');
+
+          const encodedMessage = Buffer.from(rawMessage)
+            .toString('base64')
+            .replace(/\+/g, '-')
+            .replace(/\//g, '_')
+            .replace(/=+$/, '');
+
+          const sendRes = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/send`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${tokenData.access_token}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ raw: encodedMessage })
+          });
+
+          const sendData = await sendRes.json();
+          if (sendRes.ok && sendData.id) {
+            emailSent = true;
+            console.log(`[GOOGLE CLOUD GMAIL OTP] Đã gửi mã OTP thành công tới học viên ${studentEmail}:`, sendData.id);
+          } else {
+            console.warn('[GOOGLE CLOUD GMAIL OTP] Lỗi gửi mail:', sendData);
+            emailErrorMsg = `Google Gmail API: ${sendData?.error?.message || 'Lỗi gửi thư'}`;
+          }
+        } else {
+          console.warn('[GOOGLE CLOUD GMAIL OTP] Lỗi lấy Access Token:', tokenData);
+          emailErrorMsg = `Google OAuth2: ${tokenData?.error_description || tokenData?.error || 'Lỗi Token'}`;
+        }
+      } catch (gErr) {
+        console.warn('[GOOGLE CLOUD GMAIL OTP] Lỗi kết nối:', gErr.message);
+        emailErrorMsg = `Google API Error: ${gErr.message}`;
+      }
+    }
+
+    // Cách 2: Gửi qua Gmail SMTP (Nodemailer - Chạy tốt ở Localhost)
+    if (!emailSent && transporter) {
       try {
         const sendPromise = transporter.sendMail(mailOptions);
         const timeoutPromise = new Promise((_, reject) =>
