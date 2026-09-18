@@ -620,14 +620,14 @@ export default function StudentPortal({ onSwitchToAdmin }) {
     if (lesson.type === 'quiz') {
       const quizKey = `${chapter.id}_${lesson.id}`;
       let existingAttempt = savedQuizAttempts[quizKey];
-      if (!existingAttempt && user?.id) {
+      if (!existingAttempt && user?.id && Number(user?.progress) > 0) {
         try {
           const cached = localStorage.getItem(`driveedu_quiz_result_${user.id}_${quizKey}`);
           if (cached) existingAttempt = JSON.parse(cached);
         } catch (e) {}
       }
 
-      if (existingAttempt) {
+      if (existingAttempt && Number(user?.progress) > 0) {
         setQuizAnswers(existingAttempt.answers || {});
         setQuizSubmitted(true);
         setQuizScore({
