@@ -423,12 +423,27 @@ function isUuid(val) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
 }
 
+function toUuid(str) {
+  if (!str) return null;
+  const s = String(str).trim();
+  if (isUuid(s)) return s;
+  let hash = 0;
+  for (let i = 0; i < s.length; i++) {
+    hash = ((hash << 5) - hash) + s.charCodeAt(i);
+    hash |= 0;
+  }
+  const hex = Math.abs(hash).toString(16).padStart(8, '0');
+  const pad = '1234567890abcdef1234567890abcdef';
+  const fullHex = (hex + pad).slice(0, 32);
+  return `${fullHex.slice(0, 8)}-${fullHex.slice(8, 12)}-4${fullHex.slice(13, 16)}-8${fullHex.slice(17, 20)}-${fullHex.slice(20, 32)}`;
+}
+
 // ─── Lưu Tiến Độ Học Tập Thời Gian Thực Vào Supabase ─────────────────────────
 exports.saveStudyProgress = async (req, res) => {
   try {
     checkSupabase();
     const { id: studentId } = req.params;
-    const { course_id, chapter_id, lesson_id, seconds_added, total_studied_seconds, is_completed } = req.body;
+    const { course_id, chapter_id, lesson_id, seconds_added, total_studied_seconds, is_completed, progress, overall_progress } = req.body;
 
     if (!studentId) {
       return res.status(400).json({ success: false, message: 'Thiếu thông tin studentId!' });
@@ -449,44 +464,50 @@ exports.saveStudyProgress = async (req, res) => {
     }
 
     // Chuẩn hóa lesson_id sang UUID hợp lệ
-    let resolvedLessonId = lesson_id;
-    if (lesson_id && !isUuid(lesson_id) && chapter_id) {
+    let rawLessonId = lesson_id || chapter_id;
+    let resolvedLessonId = rawLessonId;
+    if (rawLessonId && !isUuid(rawLessonId) && chapter_id) {
       try {
         const { data: realLesson } = await supabase
           .from('lessons')
           .select('id')
           .eq('chapter_id', chapter_id)
-          .eq('type', 'quiz')
           .limit(1)
           .single();
         if (realLesson && realLesson.id) resolvedLessonId = realLesson.id;
       } catch (e) {}
     }
 
+    if (resolvedLessonId) {
+      resolvedLessonId = toUuid(resolvedLessonId);
+    }
+
     // 1. Lưu vào bảng study_progress trong CSDL Supabase
     try {
-      if (resolvedLessonId && isUuid(resolvedLessonId)) {
+      if (resolvedLessonId && resolvedStudentId) {
         const { data: existingProgress } = await supabase
           .from('study_progress')
           .select('*')
           .eq('student_id', resolvedStudentId)
           .eq('lesson_id', resolvedLessonId)
-          .single();
+          .limit(1);
 
-        if (existingProgress) {
+        const existingRec = (existingProgress && existingProgress.length > 0) ? existingProgress[0] : null;
+
+        if (existingRec) {
           const newWatched = Math.max(
-            Number(existingProgress.watched_seconds) || 0,
+            Number(existingRec.watched_seconds) || 0,
             Number(total_studied_seconds) || 0,
-            (Number(existingProgress.watched_seconds) || 0) + (Number(seconds_added) || 0)
+            (Number(existingRec.watched_seconds) || 0) + (Number(seconds_added) || 0)
           );
           await supabase
             .from('study_progress')
             .update({
               watched_seconds: newWatched,
-              is_completed: is_completed !== undefined ? !!is_completed : existingProgress.is_completed,
+              is_completed: is_completed !== undefined ? !!is_completed : existingRec.is_completed,
               last_studied_at: new Date().toISOString()
             })
-            .eq('id', existingProgress.id);
+            .eq('id', existingRec.id);
         } else {
           const initialWatched = Math.max(Number(total_studied_seconds) || 0, Number(seconds_added) || 0);
           await supabase
@@ -505,17 +526,28 @@ exports.saveStudyProgress = async (req, res) => {
     }
 
     // 2. Cập nhật % tiến độ tổng quát cho học viên trong bảng students
+    let finalProgress = 0;
     try {
       if (resolvedStudentId) {
-        // Tìm tổng số bài học của khóa học mà học viên tham gia
-        let totalCourseLessons = 0;
+        const { data: currentStudent } = await supabase
+          .from('students')
+          .select('progress')
+          .eq('id', resolvedStudentId)
+          .single();
+
+        const existingPct = Number(currentStudent?.progress) || 0;
+        const clientPct = Number(progress !== undefined ? progress : (overall_progress !== undefined ? overall_progress : NaN));
+
+        let calculatedPct = 0;
+        let totalItems = 0;
+
         if (course_id) {
           const { data: chapters } = await supabase
             .from('chapters')
             .select('id, lessons(id)')
             .eq('course_id', course_id);
           if (chapters && chapters.length > 0) {
-            totalCourseLessons = chapters.reduce((sum, ch) => sum + (ch.lessons?.length || 0), 0);
+            totalItems = chapters.reduce((sum, ch) => sum + Math.max(1, (ch.lessons?.length || 0)), 0);
           }
         }
 
@@ -526,15 +558,30 @@ exports.saveStudyProgress = async (req, res) => {
 
         if (allProg && allProg.length > 0) {
           const completedCount = allProg.filter(p => p.is_completed).length;
-          const denominator = totalCourseLessons > 0 ? totalCourseLessons : Math.max(1, allProg.length);
-          const pct = Math.min(100, Math.round((completedCount / denominator) * 100));
-          await supabase
-            .from('students')
-            .update({ progress: pct, updated_at: new Date().toISOString() })
-            .eq('id', resolvedStudentId);
+          const denominator = totalItems > 0 ? totalItems : Math.max(1, allProg.length);
+          const completedPct = Math.min(100, Math.round((completedCount / denominator) * 100));
+
+          const totalWatchedSec = allProg.reduce((sum, p) => sum + (Number(p.watched_seconds) || 0), 0);
+          const totalReqSec = Math.max(1800, (totalItems > 0 ? totalItems : allProg.length) * 1800);
+          const watchedPct = Math.min(100, Math.round((totalWatchedSec / totalReqSec) * 100));
+
+          calculatedPct = Math.max(completedPct, watchedPct);
         }
+
+        finalProgress = Math.min(100, Math.max(
+          existingPct,
+          calculatedPct,
+          !isNaN(clientPct) ? clientPct : 0
+        ));
+
+        await supabase
+          .from('students')
+          .update({ progress: finalProgress, updated_at: new Date().toISOString() })
+          .eq('id', resolvedStudentId);
       }
-    } catch (err) {}
+    } catch (err) {
+      console.warn('Cập nhật tiến độ students.progress warning:', err.message);
+    }
 
     return res.json({
       success: true,
@@ -544,7 +591,8 @@ exports.saveStudyProgress = async (req, res) => {
         chapter_id,
         lesson_id: resolvedLessonId,
         total_studied_seconds,
-        is_completed
+        is_completed,
+        progress: finalProgress
       }
     });
   } catch (err) {

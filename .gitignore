@@ -33,3 +33,9 @@ desktop.ini
 # Database files
 database/
 
+# Report & presentation files
+BaoCao_PowerPoint/
+baocao/
+*.pptx
+*.docx
+

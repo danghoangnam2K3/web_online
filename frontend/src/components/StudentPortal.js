@@ -83,6 +83,25 @@ function formatTime(totalSeconds) {
   return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
 }
 
+// Tính tổng phần trăm tiến độ khóa học thời gian thực (%)
+function calcOverallProgress(chapters, progressState) {
+  if (!chapters || chapters.length === 0) return 0;
+  const totalCh = chapters.length;
+  const compCh = Object.values(progressState || {}).filter(p => p?.isCompleted).length;
+  const chPct = Math.round((compCh / totalCh) * 100);
+
+  let sumStudied = 0;
+  let sumReq = 0;
+  chapters.forEach(ch => {
+    const reqSec = ((ch.duration_minutes || 30) * 60) * ((ch.min_completion_pct || 80) / 100);
+    sumReq += reqSec;
+    const chStudied = progressState?.[ch.id]?.studiedSeconds || 0;
+    sumStudied += Math.min(reqSec, chStudied);
+  });
+  const timePct = sumReq > 0 ? Math.round((sumStudied / sumReq) * 100) : 0;
+  return Math.min(100, Math.max(chPct, timePct));
+}
+
 export default function StudentPortal({ onSwitchToAdmin }) {
   const router = useRouter();
   const { user, logout, updateProfile, changePassword } = useAuth();
@@ -344,13 +363,15 @@ export default function StudentPortal({ onSwitchToAdmin }) {
         const chId = currentLesson.chapterId;
         const curData = chapterProgress[chId];
         if (curData && curData.studiedSeconds > 0) {
+          const overallPct = calcOverallProgress(selectedCourse.chapters, chapterProgress);
           const payload = JSON.stringify({
             course_id: selectedCourse.id,
             chapter_id: chId,
             lesson_id: currentLesson.lesson.id,
             seconds_added: 0,
             total_studied_seconds: curData.studiedSeconds,
-            is_completed: curData.isCompleted
+            is_completed: curData.isCompleted,
+            progress: overallPct
           });
           try {
             if (navigator.sendBeacon) {
@@ -406,13 +427,16 @@ export default function StudentPortal({ onSwitchToAdmin }) {
 
           // Học tới đâu lưu tới đó: Tự động đồng bộ lên CSDL Supabase mỗi 5 giây
           if (newSeconds % 5 === 0 && user?.id) {
+            const overallPct = calcOverallProgress(selectedCourse.chapters, updated);
+            if (user) user.progress = overallPct;
             saveStudentProgressApi(user.id, {
               course_id: selectedCourse.id,
               chapter_id: chId,
               lesson_id: currentLesson.lesson.id,
               seconds_added: 5,
               total_studied_seconds: newSeconds,
-              is_completed: curData.isCompleted || newlyCompleted
+              is_completed: curData.isCompleted || newlyCompleted,
+              progress: overallPct
             });
           }
 
@@ -546,13 +570,15 @@ export default function StudentPortal({ onSwitchToAdmin }) {
       const oldChId = currentLesson.chapterId;
       const oldProgress = chapterProgress[oldChId];
       if (oldProgress && oldProgress.studiedSeconds > 0) {
+        const overallPct = calcOverallProgress(selectedCourse.chapters, chapterProgress);
         saveStudentProgressApi(user.id, {
           course_id: selectedCourse.id,
           chapter_id: oldChId,
           lesson_id: currentLesson.lesson.id,
           seconds_added: 0,
           total_studied_seconds: oldProgress.studiedSeconds,
-          is_completed: oldProgress.isCompleted
+          is_completed: oldProgress.isCompleted,
+          progress: overallPct
         });
       }
     }
@@ -638,13 +664,16 @@ export default function StudentPortal({ onSwitchToAdmin }) {
       }
 
       if (user?.id) {
+        const overallPct = calcOverallProgress(selectedCourse.chapters, updated);
+        if (user) user.progress = overallPct;
         saveStudentProgressApi(user.id, {
           course_id: selectedCourse.id,
           chapter_id: chId,
           lesson_id: currentLesson.lesson.id,
           seconds_added: secondsToAdd,
           total_studied_seconds: newSeconds,
-          is_completed: curData.isCompleted || newlyCompleted
+          is_completed: curData.isCompleted || newlyCompleted,
+          progress: overallPct
         });
       }
 
@@ -1071,11 +1100,7 @@ export default function StudentPortal({ onSwitchToAdmin }) {
                   </p>
                 </div>
                 <div className="w-10 h-10 rounded-full bg-emerald-50 border-2 border-emerald-500 flex items-center justify-center text-emerald-600 font-black text-xs">
-                  {Math.round(
-                    (Object.values(chapterProgress).filter(p => p.isCompleted).length /
-                      Math.max(1, (selectedCourse.chapters || []).length)) *
-                      100
-                  )}%
+                  {calcOverallProgress(selectedCourse?.chapters, chapterProgress)}%
                 </div>
               </div>
             </div>
